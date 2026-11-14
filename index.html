@@ -112,7 +112,17 @@
 #dlgName { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: #c9b27a; margin-bottom: 4px; }
 #dlgName.me { color: #8fc4ff; }
 #dlgText { font-size: clamp(15px, 2.4vw, 19px); line-height: 1.4; }
+
+#err { display: none; max-width: min(560px, 90vw); margin-top: 16px; padding: 10px 14px; border-radius: 8px; background: rgba(120,20,20,.35);
+  border: 1px solid rgba(255,120,120,.5); color: #ffb4b4; font: 12px/1.4 monospace; white-space: pre-wrap; text-align: left; }
 </style>
+<script>
+// если что-то сломается (старый браузер, нет WebGL, не загрузился three.js) — причина будет видна в меню
+window.onerror = function (m, src, l, c) {
+  var e = document.getElementById('err'); if (!e) return;
+  e.style.display = 'block'; e.textContent += String(m) + (l ? ' (строка ' + l + ')' : '') + '\n';
+};
+</script>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -139,10 +149,13 @@
   <h1>NIGHT TO NEVER</h1>
   <h2>THE ROAD</h2>
   <button id="play">ИГРАТЬ</button>
+  <div id="err"></div>
   <div class="ver">v0.9 — сценарий по таймлайну, салон, мотель</div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>window.THREE || document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"><\/script>');</script>
+<script>window.THREE || document.write('<script src="https://unpkg.com/three@0.128.0/build/three.min.js"><\/script>');</script>
 <script>
 (() => {
 'use strict';
@@ -347,7 +360,13 @@ const SFX = (() => {
    СЦЕНА
    ===================================================================== */
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: !TOUCH_UI, powerPreference: 'high-performance' });
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ canvas, antialias: !TOUCH_UI, powerPreference: 'high-performance' }); }
+catch (e) {
+  const er = document.getElementById('err');
+  if (er) { er.style.display = 'block'; er.textContent = 'WebGL недоступен в этом браузере: ' + (e && e.message ? e.message : e); }
+  return;
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, TOUCH_UI ? 1.25 : 1.5));
 
 const scene = new THREE.Scene();
