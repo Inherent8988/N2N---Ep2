@@ -175,12 +175,936 @@
   <h2>THE ROAD</h2>
   <button id="play">PLAY</button>
   <div id="err"></div>
-  <div class="ver">v0.10.3 PS5 — DualSense</div>
+  <div class="ver">v0.11.2 PS5 NoGL — software renderer, DualSense</div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script>window.THREE || document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"><\/script>');</script>
-<script>window.THREE || document.write('<script src="https://unpkg.com/three@0.128.0/build/three.min.js"><\/script>');</script>
+<script>
+/* softgl.js - tiny three.js-compatible subset + SOFTWARE rasterizer on Canvas 2D (no WebGL).
+   Only what NIGHT TO NEVER uses. Exposes window.THREE. */
+(function (root) {
+'use strict';
+const T = {};
+const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+
+/* ------------------------------ math ------------------------------ */
+class Vector2 { constructor(x, y) { this.x = x || 0; this.y = y || 0; }
+  set(x, y) { this.x = x; this.y = y; return this; } copy(v) { this.x = v.x; this.y = v.y; return this; } clone() { return new Vector2(this.x, this.y); } }
+class Vector3 {
+  constructor(x, y, z) { this.x = x || 0; this.y = y || 0; this.z = z || 0; }
+  set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+  setScalar(s) { this.x = this.y = this.z = s; return this; }
+  copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; return this; }
+  clone() { return new Vector3(this.x, this.y, this.z); }
+  add(v) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
+  sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
+  addVectors(a, b) { this.x = a.x + b.x; this.y = a.y + b.y; this.z = a.z + b.z; return this; }
+  subVectors(a, b) { this.x = a.x - b.x; this.y = a.y - b.y; this.z = a.z - b.z; return this; }
+  multiplyScalar(s) { this.x *= s; this.y *= s; this.z *= s; return this; }
+  divideScalar(s) { return this.multiplyScalar(1 / s); }
+  addScaledVector(v, s) { this.x += v.x * s; this.y += v.y * s; this.z += v.z * s; return this; }
+  negate() { this.x = -this.x; this.y = -this.y; this.z = -this.z; return this; }
+  dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z; }
+  cross(v) { const x = this.y * v.z - this.z * v.y, y = this.z * v.x - this.x * v.z, z = this.x * v.y - this.y * v.x; this.x = x; this.y = y; this.z = z; return this; }
+  crossVectors(a, b) { const x = a.y * b.z - a.z * b.y, y = a.z * b.x - a.x * b.z, z = a.x * b.y - a.y * b.x; this.x = x; this.y = y; this.z = z; return this; }
+  lengthSq() { return this.x * this.x + this.y * this.y + this.z * this.z; }
+  length() { return Math.sqrt(this.lengthSq()); }
+  normalize() { const l = this.length() || 1; return this.multiplyScalar(1 / l); }
+  distanceToSquared(v) { const dx = this.x - v.x, dy = this.y - v.y, dz = this.z - v.z; return dx * dx + dy * dy + dz * dz; }
+  distanceTo(v) { return Math.sqrt(this.distanceToSquared(v)); }
+  lerp(v, t) { this.x += (v.x - this.x) * t; this.y += (v.y - this.y) * t; this.z += (v.z - this.z) * t; return this; }
+  applyMatrix4(m) { const e = m.elements, x = this.x, y = this.y, z = this.z;
+    this.x = e[0] * x + e[4] * y + e[8] * z + e[12]; this.y = e[1] * x + e[5] * y + e[9] * z + e[13]; this.z = e[2] * x + e[6] * y + e[10] * z + e[14]; return this; }
+  transformDirection(m) { const e = m.elements, x = this.x, y = this.y, z = this.z;
+    this.x = e[0] * x + e[4] * y + e[8] * z; this.y = e[1] * x + e[5] * y + e[9] * z; this.z = e[2] * x + e[6] * y + e[10] * z; return this.normalize(); }
+  setFromMatrixPosition(m) { const e = m.elements; this.x = e[12]; this.y = e[13]; this.z = e[14]; return this; }
+  applyAxisAngle(ax, a) { const c = Math.cos(a), s = Math.sin(a), d = this.dot(ax), cr = new Vector3().crossVectors(ax, this);
+    this.x = this.x * c + cr.x * s + ax.x * d * (1 - c); this.y = this.y * c + cr.y * s + ax.y * d * (1 - c); this.z = this.z * c + cr.z * s + ax.z * d * (1 - c); return this; }
+  equals(v) { return this.x === v.x && this.y === v.y && this.z === v.z; }
+}
+class Color {
+  constructor(r, g, b) { this.r = 1; this.g = 1; this.b = 1; if (r !== undefined) this.set(r, g, b); }
+  set(r, g, b) {
+    if (g !== undefined) { this.r = r; this.g = g; this.b = b; return this; }
+    if (r && r.isColor) return this.copy(r);
+    if (typeof r === 'number') return this.setHex(r);
+    if (typeof r === 'string') { let s = r.trim(); if (s[0] === '#') { if (s.length === 4) s = '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3]; return this.setHex(parseInt(s.slice(1), 16)); } }
+    return this;
+  }
+  setHex(h) { this.r = (h >> 16 & 255) / 255; this.g = (h >> 8 & 255) / 255; this.b = (h & 255) / 255; return this; }
+  setRGB(r, g, b) { this.r = r; this.g = g; this.b = b; return this; }
+  setHSL(h, s, l) { const f = (n) => { const k = (n + h * 12) % 12, a = s * Math.min(l, 1 - l); return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; this.r = f(0); this.g = f(8); this.b = f(4); return this; }
+  getHex() { return (clamp(this.r, 0, 1) * 255 | 0) << 16 ^ (clamp(this.g, 0, 1) * 255 | 0) << 8 ^ (clamp(this.b, 0, 1) * 255 | 0); }
+  copy(c) { this.r = c.r; this.g = c.g; this.b = c.b; return this; }
+  clone() { return new Color(this.r, this.g, this.b); }
+  multiplyScalar(s) { this.r *= s; this.g *= s; this.b *= s; return this; }
+  lerp(c, t) { this.r += (c.r - this.r) * t; this.g += (c.g - this.g) * t; this.b += (c.b - this.b) * t; return this; }
+}
+Color.prototype.isColor = true;
+
+const ROT = (ax, a) => { const c = Math.cos(a), s = Math.sin(a);
+  return ax === 0 ? [1, 0, 0, 0, c, s, 0, -s, c] : ax === 1 ? [c, 0, -s, 0, 1, 0, s, 0, c] : [c, s, 0, -s, c, 0, 0, 0, 1]; };   // column-major 3x3
+const mul3 = (a, b) => { const o = new Array(9);
+  for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) o[c * 3 + r] = a[r] * b[c * 3] + a[3 + r] * b[c * 3 + 1] + a[6 + r] * b[c * 3 + 2]; return o; };
+
+class Euler {
+  constructor(x, y, z, order) { this.x = x || 0; this.y = y || 0; this.z = z || 0; this.order = order || 'XYZ'; }
+  set(x, y, z, order) { this.x = x; this.y = y; this.z = z; if (order) this.order = order; return this; }
+  copy(e) { this.x = e.x; this.y = e.y; this.z = e.z; this.order = e.order; return this; }
+  clone() { return new Euler(this.x, this.y, this.z, this.order); }
+  matrix3() {
+    const X = ROT(0, this.x), Y = ROT(1, this.y), Z = ROT(2, this.z);
+    switch (this.order) {
+      case 'YXZ': return mul3(mul3(Y, X), Z);
+      case 'ZYX': return mul3(mul3(Z, Y), X);
+      case 'ZXY': return mul3(mul3(Z, X), Y);
+      case 'YZX': return mul3(mul3(Y, Z), X);
+      case 'XZY': return mul3(mul3(X, Z), Y);
+      default: return mul3(mul3(X, Y), Z);
+    }
+  }
+  setFromRotation3(m) {   // m: column-major 3x3 ; mRC = m[(C-1)*3+(R-1)]
+    const m11 = m[0], m12 = m[3], m13 = m[6], m21 = m[1], m22 = m[4], m23 = m[7], m31 = m[2], m32 = m[5], m33 = m[8];
+    if (this.order === 'YXZ') {
+      this.x = Math.asin(-clamp(m23, -1, 1));
+      if (Math.abs(m23) < 0.9999999) { this.y = Math.atan2(m13, m33); this.z = Math.atan2(m21, m22); } else { this.y = Math.atan2(-m31, m11); this.z = 0; }
+    } else {   // XYZ
+      this.y = Math.asin(clamp(m13, -1, 1));
+      if (Math.abs(m13) < 0.9999999) { this.x = Math.atan2(-m23, m33); this.z = Math.atan2(-m12, m11); } else { this.x = Math.atan2(m32, m22); this.z = 0; }
+    }
+    return this;
+  }
+}
+
+class Matrix4 {
+  constructor() { this.elements = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; }
+  identity() { const e = this.elements; e[0] = 1; e[1] = 0; e[2] = 0; e[3] = 0; e[4] = 0; e[5] = 1; e[6] = 0; e[7] = 0; e[8] = 0; e[9] = 0; e[10] = 1; e[11] = 0; e[12] = 0; e[13] = 0; e[14] = 0; e[15] = 1; return this; }
+  copy(m) { const a = this.elements, b = m.elements; for (let i = 0; i < 16; i++) a[i] = b[i]; return this; }
+  clone() { return new Matrix4().copy(this); }
+  makeScale(x, y, z) { this.identity(); const e = this.elements; e[0] = x; e[5] = y; e[10] = z; return this; }
+  makeTranslation(x, y, z) { this.identity(); const e = this.elements; e[12] = x; e[13] = y; e[14] = z; return this; }
+  makeRotationY(a) { this.identity(); const e = this.elements, c = Math.cos(a), s = Math.sin(a); e[0] = c; e[2] = -s; e[8] = s; e[10] = c; return this; }
+  compose(p, euler, s) {
+    const r = euler.matrix3(), e = this.elements;
+    e[0] = r[0] * s.x; e[1] = r[1] * s.x; e[2] = r[2] * s.x; e[3] = 0;
+    e[4] = r[3] * s.y; e[5] = r[4] * s.y; e[6] = r[5] * s.y; e[7] = 0;
+    e[8] = r[6] * s.z; e[9] = r[7] * s.z; e[10] = r[8] * s.z; e[11] = 0;
+    e[12] = p.x; e[13] = p.y; e[14] = p.z; e[15] = 1; return this;
+  }
+  multiplyMatrices(a, b) {
+    const A = a.elements, B = b.elements, e = this.elements;
+    const a11 = A[0], a12 = A[4], a13 = A[8], a14 = A[12], a21 = A[1], a22 = A[5], a23 = A[9], a24 = A[13], a31 = A[2], a32 = A[6], a33 = A[10], a34 = A[14], a41 = A[3], a42 = A[7], a43 = A[11], a44 = A[15];
+    const b11 = B[0], b12 = B[4], b13 = B[8], b14 = B[12], b21 = B[1], b22 = B[5], b23 = B[9], b24 = B[13], b31 = B[2], b32 = B[6], b33 = B[10], b34 = B[14], b41 = B[3], b42 = B[7], b43 = B[11], b44 = B[15];
+    e[0] = a11 * b11 + a12 * b21 + a13 * b31 + a14 * b41; e[4] = a11 * b12 + a12 * b22 + a13 * b32 + a14 * b42; e[8] = a11 * b13 + a12 * b23 + a13 * b33 + a14 * b43; e[12] = a11 * b14 + a12 * b24 + a13 * b34 + a14 * b44;
+    e[1] = a21 * b11 + a22 * b21 + a23 * b31 + a24 * b41; e[5] = a21 * b12 + a22 * b22 + a23 * b32 + a24 * b42; e[9] = a21 * b13 + a22 * b23 + a23 * b33 + a24 * b43; e[13] = a21 * b14 + a22 * b24 + a23 * b34 + a24 * b44;
+    e[2] = a31 * b11 + a32 * b21 + a33 * b31 + a34 * b41; e[6] = a31 * b12 + a32 * b22 + a33 * b32 + a34 * b42; e[10] = a31 * b13 + a32 * b23 + a33 * b33 + a34 * b43; e[14] = a31 * b14 + a32 * b24 + a33 * b34 + a34 * b44;
+    e[3] = a41 * b11 + a42 * b21 + a43 * b31 + a44 * b41; e[7] = a41 * b12 + a42 * b22 + a43 * b32 + a44 * b42; e[11] = a41 * b13 + a42 * b23 + a43 * b33 + a44 * b43; e[15] = a41 * b14 + a42 * b24 + a43 * b34 + a44 * b44;
+    return this;
+  }
+  multiply(m) { return this.multiplyMatrices(this, m); }
+  invertAffine(m) {   // inverse of an affine matrix (m defaults to this)
+    const s = (m || this).elements, e = this.elements;
+    const a = s[0], b = s[4], c = s[8], d = s[1], f = s[5], g = s[9], h = s[2], i = s[6], j = s[10], tx = s[12], ty = s[13], tz = s[14];
+    const A = f * j - g * i, B = -(d * j - g * h), C = d * i - f * h;
+    let det = a * A + b * B + c * C; det = Math.abs(det) < 1e-12 ? 1e12 : 1 / det;
+    const i00 = A * det, i01 = -(b * j - c * i) * det, i02 = (b * g - c * f) * det;
+    const i10 = B * det, i11 = (a * j - c * h) * det, i12 = -(a * g - c * d) * det;
+    const i20 = C * det, i21 = -(a * i - b * h) * det, i22 = (a * f - b * d) * det;
+    e[0] = i00; e[4] = i01; e[8] = i02; e[1] = i10; e[5] = i11; e[9] = i12; e[2] = i20; e[6] = i21; e[10] = i22;
+    e[12] = -(i00 * tx + i01 * ty + i02 * tz); e[13] = -(i10 * tx + i11 * ty + i12 * tz); e[14] = -(i20 * tx + i21 * ty + i22 * tz);
+    e[3] = 0; e[7] = 0; e[11] = 0; e[15] = 1; return this;
+  }
+  getInverse(m) { return this.invertAffine(m); }
+  invert() { return this.invertAffine(this.clone()); }
+}
+
+/* ------------------------------ scene graph ------------------------------ */
+class Object3D {
+  constructor() {
+    this.position = new Vector3(); this.rotation = new Euler(); this.scale = new Vector3(1, 1, 1);
+    this.matrix = new Matrix4(); this.matrixWorld = new Matrix4();
+    this.parent = null; this.children = []; this.visible = true; this.userData = {}; this.name = '';
+    this.renderOrder = 0; this.frustumCulled = true; this.matrixAutoUpdate = true;
+  }
+  add() { for (let i = 0; i < arguments.length; i++) { const o = arguments[i]; if (!o || o === this) continue; if (o.parent) o.parent.remove(o); o.parent = this; this.children.push(o); } return this; }
+  remove() { for (let i = 0; i < arguments.length; i++) { const o = arguments[i], k = this.children.indexOf(o); if (k >= 0) { this.children.splice(k, 1); o.parent = null; } } return this; }
+  traverse(fn) { fn(this); for (let i = 0; i < this.children.length; i++) this.children[i].traverse(fn); }
+  updateMatrix() { this.matrix.compose(this.position, this.rotation, this.scale); }
+  updateMatrixWorld() {
+    this.updateMatrix();
+    if (this.parent) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix); else this.matrixWorld.copy(this.matrix);
+    for (let i = 0; i < this.children.length; i++) this.children[i].updateMatrixWorld();
+  }
+  _updateUp() { if (this.parent) this.parent._updateUp(); this.updateMatrix(); if (this.parent) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix); else this.matrixWorld.copy(this.matrix); }
+  localToWorld(v) { return v.applyMatrix4(this.matrixWorld); }
+  worldToLocal(v) { return v.applyMatrix4(new Matrix4().invertAffine(this.matrixWorld)); }
+  getWorldPosition(t) { this._updateUp(); return t.setFromMatrixPosition(this.matrixWorld); }
+  getWorldDirection(t) { this._updateUp(); const e = this.matrixWorld.elements; t.set(e[8], e[9], e[10]).normalize(); if (this.isCamera) t.negate(); return t; }
+  lookAt(x, y, z) {
+    const tg = x.isVector3 || (x && x.x !== undefined) ? x : new Vector3(x, y, z);
+    this._updateUp();
+    const p = new Vector3().setFromMatrixPosition(this.matrixWorld);
+    const zz = (this.isCamera || this.isLight) ? new Vector3().subVectors(p, tg) : new Vector3().subVectors(tg, p);
+    if (zz.lengthSq() < 1e-12) zz.z = 1;
+    zz.normalize();
+    let xx = new Vector3(0, 1, 0).cross(zz);
+    if (xx.lengthSq() < 1e-12) { zz.x += 1e-4; zz.normalize(); xx = new Vector3(0, 1, 0).cross(zz); }
+    xx.normalize();
+    const yy = new Vector3().crossVectors(zz, xx);
+    let R = [xx.x, xx.y, xx.z, yy.x, yy.y, yy.z, zz.x, zz.y, zz.z];
+    if (this.parent) {
+      const e = this.parent.matrixWorld.elements, P = [e[0], e[1], e[2], e[4], e[5], e[6], e[8], e[9], e[10]];
+      for (let c = 0; c < 3; c++) { const l = Math.hypot(P[c * 3], P[c * 3 + 1], P[c * 3 + 2]) || 1; P[c * 3] /= l; P[c * 3 + 1] /= l; P[c * 3 + 2] /= l; }
+      const PT = [P[0], P[3], P[6], P[1], P[4], P[7], P[2], P[5], P[8]];
+      R = mul3(PT, R);
+    }
+    this.rotation.setFromRotation3(R);
+  }
+}
+Vector3.prototype.isVector3 = true;
+T.Object3D = Object3D; T.Group = class Group extends Object3D {}; T.Vector2 = Vector2; T.Vector3 = Vector3; T.Color = Color; T.Euler = Euler; T.Matrix4 = Matrix4;
+T.DoubleSide = 2; T.FrontSide = 0; T.BackSide = 1; T.AdditiveBlending = 2; T.NormalBlending = 1; T.RepeatWrapping = 1000; T.ClampToEdgeWrapping = 1001;
+
+class Scene extends Object3D { constructor() { super(); this.background = null; this.fog = null; } }
+class FogExp2 { constructor(c, d) { this.color = new Color(c); this.density = d === undefined ? 0.00025 : d; } }
+class PerspectiveCamera extends Object3D {
+  constructor(fov, aspect, near, far) { super(); this.fov = fov || 50; this.aspect = aspect || 1; this.near = near || 0.1; this.far = far || 2000; this.isCamera = true; }
+  updateProjectionMatrix() {}
+}
+T.Scene = Scene; T.FogExp2 = FogExp2; T.PerspectiveCamera = PerspectiveCamera;
+
+class Light extends Object3D { constructor(c, i) { super(); this.color = new Color(c); this.intensity = i === undefined ? 1 : i; this.isLight = true; } }
+class HemisphereLight extends Light { constructor(sky, ground, i) { super(sky, i); this.groundColor = new Color(ground); this.isHemi = true; } }
+class DirectionalLight extends Light { constructor(c, i) { super(c, i); this.target = new Object3D(); this.isDir = true; } }
+class PointLight extends Light { constructor(c, i, d, decay) { super(c, i); this.distance = d || 0; this.decay = decay === undefined ? 1 : decay; this.isPoint = true; } }
+class SpotLight extends Light { constructor(c, i, d, angle, pen, decay) { super(c, i); this.distance = d || 0; this.angle = angle === undefined ? Math.PI / 3 : angle; this.penumbra = pen || 0; this.decay = decay === undefined ? 1 : decay; this.target = new Object3D(); this.isSpot = true; } }
+T.HemisphereLight = HemisphereLight; T.DirectionalLight = DirectionalLight; T.PointLight = PointLight; T.SpotLight = SpotLight;
+
+/* ------------------------------ textures / materials ------------------------------ */
+class CanvasTexture {
+  constructor(canvas) { this.image = canvas; this.wrapS = 1001; this.wrapT = 1001; this.repeat = new Vector2(1, 1); this.offset = new Vector2(0, 0); this.anisotropy = 1; this._dirty = true; this._lv = null; this.isTexture = true; }
+  set needsUpdate(v) { if (v) this._dirty = true; }
+  get needsUpdate() { return false; }
+  dispose() {}
+  levels() {
+    if (!this._dirty && this._lv) return this._lv;
+    this._dirty = false;
+    const c = this.image; let w = c.width | 0, h = c.height | 0;
+    if (!w || !h) { this._lv = [{ w: 1, h: 1, d: new Uint8ClampedArray([255, 255, 255, 255]) }]; return this._lv; }
+    let d;
+    try { d = c.getContext('2d').getImageData(0, 0, w, h).data; } catch (e) { d = new Uint8ClampedArray(w * h * 4).fill(255); }
+    const lv = [{ w, h, d }];
+    while (w > 1 || h > 1) {
+      const nw = Math.max(1, w >> 1), nh = Math.max(1, h >> 1), nd = new Uint8ClampedArray(nw * nh * 4), pd = lv[lv.length - 1].d;
+      for (let y = 0; y < nh; y++) for (let x = 0; x < nw; x++) {
+        const x0 = Math.min(w - 1, x * 2), x1 = Math.min(w - 1, x * 2 + 1), y0 = Math.min(h - 1, y * 2), y1 = Math.min(h - 1, y * 2 + 1);
+        const i0 = (y0 * w + x0) * 4, i1 = (y0 * w + x1) * 4, i2 = (y1 * w + x0) * 4, i3 = (y1 * w + x1) * 4, o = (y * nw + x) * 4;
+        for (let k = 0; k < 4; k++) nd[o + k] = (pd[i0 + k] + pd[i1 + k] + pd[i2 + k] + pd[i3 + k] + 2) >> 2;
+      }
+      lv.push({ w: nw, h: nh, d: nd }); w = nw; h = nh;
+    }
+    this._lv = lv; return lv;
+  }
+}
+T.CanvasTexture = CanvasTexture; T.Texture = CanvasTexture;
+
+class Material {
+  constructor(o) {
+    o = o || {};
+    this.color = new Color(o.color === undefined ? 0xffffff : o.color);
+    this.map = o.map || null; this.opacity = o.opacity === undefined ? 1 : o.opacity; this.transparent = !!o.transparent;
+    this.side = o.side || 0; this.depthWrite = o.depthWrite !== false; this.depthTest = o.depthTest !== false;
+    this.blending = o.blending || 1; this.fog = o.fog !== false; this.vertexColors = !!o.vertexColors;
+    this.emissive = new Color(o.emissive === undefined ? 0x000000 : o.emissive); this.emissiveIntensity = o.emissiveIntensity === undefined ? 1 : o.emissiveIntensity;
+    this.polygonOffset = !!o.polygonOffset; this.alphaTest = o.alphaTest || 0; this.size = o.size || 1; this.visible = true;
+  }
+  dispose() {} clone() { const m = new this.constructor(); Object.assign(m, this); m.color = this.color.clone(); m.emissive = this.emissive.clone(); return m; }
+}
+class MeshBasicMaterial extends Material { constructor(o) { super(o); this.lit = false; } }
+class MeshLambertMaterial extends Material { constructor(o) { super(o); this.lit = true; } }
+class MeshPhongMaterial extends Material { constructor(o) { super(o); this.lit = true; this.shininess = (o && o.shininess) || 30; this.specular = new Color(o && o.specular !== undefined ? o.specular : 0x111111); } }
+class SpriteMaterial extends Material { constructor(o) { super(o); this.lit = false; this.isSprite = true; } }
+class PointsMaterial extends Material { constructor(o) { super(o); this.lit = false; this.isPointsMat = true; } }
+T.MeshBasicMaterial = MeshBasicMaterial; T.MeshLambertMaterial = MeshLambertMaterial; T.MeshPhongMaterial = MeshPhongMaterial; T.SpriteMaterial = SpriteMaterial; T.PointsMaterial = PointsMaterial;
+
+/* ------------------------------ geometry ------------------------------ */
+class BufferAttribute { constructor(a, n) { this.array = a; this.itemSize = n; this.count = a.length / n; this.needsUpdate = false; } }
+T.BufferAttribute = BufferAttribute;
+T.Float32BufferAttribute = class extends BufferAttribute { constructor(a, n) { super(new Float32Array(a), n); } };
+
+class BufferGeometry {
+  constructor() { this.attributes = {}; this.index = null; this._bs = null; this._bb = null; this.isGeometry = true; }
+  setAttribute(n, a) { this.attributes[n] = a; this._bs = null; this._bb = null; return this; }
+  getAttribute(n) { return this.attributes[n]; }
+  setIndex(a) { this.index = { array: a.array ? a.array : Uint32Array.from(a) }; return this; }
+  dispose() {}
+  _mapPos(fn) { const p = this.attributes.position.array; for (let i = 0; i < p.length; i += 3) fn(p, i); this._bs = null; this._bb = null; }
+  _mapNor(fn) { const n = this.attributes.normal; if (!n) return; const p = n.array; for (let i = 0; i < p.length; i += 3) fn(p, i); }
+  translate(x, y, z) { this._mapPos((p, i) => { p[i] += x; p[i + 1] += y; p[i + 2] += z; }); return this; }
+  scale(x, y, z) {
+    this._mapPos((p, i) => { p[i] *= x; p[i + 1] *= y; p[i + 2] *= z; });
+    this._mapNor((p, i) => { const a = p[i] / x, b = p[i + 1] / y, c = p[i + 2] / z, l = Math.hypot(a, b, c) || 1; p[i] = a / l; p[i + 1] = b / l; p[i + 2] = c / l; }); return this;
+  }
+  _rot(ax, a) {
+    const c = Math.cos(a), s = Math.sin(a);
+    const f = (p, i) => { const x = p[i], y = p[i + 1], z = p[i + 2];
+      if (ax === 0) { p[i + 1] = c * y - s * z; p[i + 2] = s * y + c * z; }
+      else if (ax === 1) { p[i] = c * x + s * z; p[i + 2] = -s * x + c * z; }
+      else { p[i] = c * x - s * y; p[i + 1] = s * x + c * y; } };
+    this._mapPos(f); this._mapNor(f); return this;
+  }
+  rotateX(a) { return this._rot(0, a); } rotateY(a) { return this._rot(1, a); } rotateZ(a) { return this._rot(2, a); }
+  toNonIndexed() {
+    if (!this.index) return this;
+    const idx = this.index.array, out = new BufferGeometry();
+    for (const k in this.attributes) {
+      const at = this.attributes[k], n = at.itemSize, src = at.array, dst = new Float32Array(idx.length * n);
+      for (let i = 0; i < idx.length; i++) for (let j = 0; j < n; j++) dst[i * n + j] = src[idx[i] * n + j];
+      out.setAttribute(k, new BufferAttribute(dst, n));
+    }
+    return out;
+  }
+  computeVertexNormals() {
+    const p = this.attributes.position.array, nv = p.length / 3, n = new Float32Array(p.length), idx = this.index ? this.index.array : null, nt = (idx ? idx.length : nv) / 3;
+    for (let t = t0; t < nt; t++) {
+      const a = idx ? idx[t * 3] : t * 3, b = idx ? idx[t * 3 + 1] : t * 3 + 1, c = idx ? idx[t * 3 + 2] : t * 3 + 2;
+      const ux = p[b * 3] - p[a * 3], uy = p[b * 3 + 1] - p[a * 3 + 1], uz = p[b * 3 + 2] - p[a * 3 + 2], vx = p[c * 3] - p[a * 3], vy = p[c * 3 + 1] - p[a * 3 + 1], vz = p[c * 3 + 2] - p[a * 3 + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      for (const v of [a, b, c]) { n[v * 3] += nx; n[v * 3 + 1] += ny; n[v * 3 + 2] += nz; }
+    }
+    for (let i = 0; i < nv; i++) { const l = Math.hypot(n[i * 3], n[i * 3 + 1], n[i * 3 + 2]) || 1; n[i * 3] /= l; n[i * 3 + 1] /= l; n[i * 3 + 2] /= l; }
+    this.setAttribute('normal', new BufferAttribute(n, 3));
+  }
+  bounds() {
+    if (this._bb) return this._bb;
+    const p = this.attributes.position.array; let x0 = 1e30, y0 = 1e30, z0 = 1e30, x1 = -1e30, y1 = -1e30, z1 = -1e30;
+    for (let i = 0; i < p.length; i += 3) { const x = p[i], y = p[i + 1], z = p[i + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z; }
+    if (!p.length) { x0 = y0 = z0 = x1 = y1 = z1 = 0; }
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2; let r = 0;
+    for (let i = 0; i < p.length; i += 3) r = Math.max(r, Math.hypot(p[i] - cx, p[i + 1] - cy, p[i + 2] - cz));
+    return (this._bb = { x0, y0, z0, x1, y1, z1, cx, cy, cz, r });
+  }
+}
+T.BufferGeometry = BufferGeometry;
+
+// build a geometry from raw arrays; make triangle winding agree with the (outward) vertex normals
+function build(pos, nor, uv, idx) {
+  const g = new BufferGeometry();
+  const I = Uint32Array.from(idx);
+  for (let t = 0; t < I.length; t += 3) {
+    const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+    const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2], vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
+    const fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;
+    const nx = nor[a] + nor[b] + nor[c], ny = nor[a + 1] + nor[b + 1] + nor[c + 1], nz = nor[a + 2] + nor[b + 2] + nor[c + 2];
+    if (fx * nx + fy * ny + fz * nz < 0) { const tmp = I[t + 1]; I[t + 1] = I[t + 2]; I[t + 2] = tmp; }
+  }
+  g.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
+  g.setAttribute('normal', new BufferAttribute(new Float32Array(nor), 3));
+  g.setAttribute('uv', new BufferAttribute(new Float32Array(uv), 2));
+  g.index = { array: I };
+  return g;
+}
+
+T.BoxGeometry = function (w, h, d, ws, hs, ds) {
+  w = w || 1; h = h || 1; d = d || 1; ws = ws || 1; hs = hs || 1; ds = ds || 1;
+  const pos = [], nor = [], uv = [], idx = []; let nvert = 0;
+  function plane(u, v, wAx, udir, vdir, width, height, depth, gx, gy) {
+    const sw = width / gx, sh = height / gy, wh = width / 2, hh = height / 2, dh = depth / 2, gx1 = gx + 1, gy1 = gy + 1, start = nvert;
+    for (let iy = 0; iy < gy1; iy++) { const y = iy * sh - hh; for (let ix = 0; ix < gx1; ix++) { const x = ix * sw - wh, p = [0, 0, 0], n = [0, 0, 0];
+      p[u] = x * udir; p[v] = y * vdir; p[wAx] = dh; n[wAx] = depth > 0 ? 1 : -1; pos.push(p[0], p[1], p[2]); nor.push(n[0], n[1], n[2]); uv.push(ix / gx, 1 - iy / gy); nvert++; } }
+    for (let iy = 0; iy < gy; iy++) for (let ix = 0; ix < gx; ix++) { const a = start + ix + gx1 * iy, b = start + ix + gx1 * (iy + 1), c = start + ix + 1 + gx1 * (iy + 1), dd = start + ix + 1 + gx1 * iy; idx.push(a, b, dd, b, c, dd); }
+  }
+  plane(2, 1, 0, -1, -1, d, h, w, ds, hs); plane(2, 1, 0, 1, -1, d, h, -w, ds, hs);
+  plane(0, 2, 1, 1, 1, w, d, h, ws, ds); plane(0, 2, 1, 1, -1, w, d, -h, ws, ds);
+  plane(0, 1, 2, 1, -1, w, h, d, ws, hs); plane(0, 1, 2, -1, -1, w, h, -d, ws, hs);
+  return build(pos, nor, uv, idx);
+};
+T.PlaneGeometry = function (w, h, ws, hs) {
+  w = w || 1; h = h || 1; ws = ws || 1; hs = hs || 1;
+  const pos = [], nor = [], uv = [], idx = [], gx1 = ws + 1;
+  for (let iy = 0; iy <= hs; iy++) { const y = iy * (h / hs) - h / 2; for (let ix = 0; ix <= ws; ix++) { pos.push(ix * (w / ws) - w / 2, -y, 0); nor.push(0, 0, 1); uv.push(ix / ws, 1 - iy / hs); } }
+  for (let iy = 0; iy < hs; iy++) for (let ix = 0; ix < ws; ix++) { const a = ix + gx1 * iy, b = ix + gx1 * (iy + 1), c = ix + 1 + gx1 * (iy + 1), d = ix + 1 + gx1 * iy; idx.push(a, b, d, b, c, d); }
+  return build(pos, nor, uv, idx);
+};
+T.CylinderGeometry = function (rt, rb, h, rs, hs, open, ts, tl) {
+  rt = rt === undefined ? 1 : rt; rb = rb === undefined ? 1 : rb; h = h === undefined ? 1 : h; rs = Math.floor(rs || 8); hs = Math.floor(hs || 1);
+  ts = ts || 0; tl = tl === undefined ? Math.PI * 2 : tl;
+  const pos = [], nor = [], uv = [], idx = [], slope = (rb - rt) / h, rows = [];
+  for (let y = 0; y <= hs; y++) { const v = y / hs, r = v * (rb - rt) + rt, row = [];
+    for (let x = 0; x <= rs; x++) { const u = x / rs, th = u * tl + ts, s = Math.sin(th), c = Math.cos(th);
+      pos.push(r * s, -v * h + h / 2, r * c); const l = Math.hypot(1, slope); nor.push(s / l, slope / l, c / l); uv.push(u, 1 - v); row.push(pos.length / 3 - 1); }
+    rows.push(row); }
+  for (let x = 0; x < rs; x++) for (let y = 0; y < hs; y++) { const a = rows[y][x], b = rows[y + 1][x], c = rows[y + 1][x + 1], d = rows[y][x + 1]; if (rt > 0 || y !== 0) idx.push(a, b, d); if (rb > 0 || y !== hs - 1) idx.push(b, c, d); }
+  const groups = [{ start: 0, count: idx.length, materialIndex: 0 }];
+  if (!open) for (const top of [true, false]) { const r = top ? rt : rb; if (r <= 0) continue; const gs0 = idx.length; const sg = top ? 1 : -1, cIdx = pos.length / 3;
+    pos.push(0, sg * h / 2, 0); nor.push(0, sg, 0); uv.push(0.5, 0.5);
+    for (let x = 0; x <= rs; x++) { const th = x / rs * tl + ts, s = Math.sin(th), c = Math.cos(th); pos.push(r * s, sg * h / 2, r * c); nor.push(0, sg, 0); uv.push(c * 0.5 + 0.5, s * 0.5 * sg + 0.5); }
+    for (let x = 0; x < rs; x++) idx.push(cIdx, cIdx + 1 + x, cIdx + 2 + x); groups.push({ start: gs0, count: idx.length - gs0, materialIndex: top ? 1 : 2 }); }
+  const geo = build(pos, nor, uv, idx); geo.groups = groups; return geo;
+};
+T.ConeGeometry = function (r, h, rs, hs, open, ts, tl) { return T.CylinderGeometry(0, r === undefined ? 1 : r, h === undefined ? 1 : h, rs, hs, open, ts, tl); };
+T.SphereGeometry = function (r, ws, hs, ps, pl, ts, tl) {
+  r = r === undefined ? 1 : r; ws = Math.max(3, Math.floor(ws || 8)); hs = Math.max(2, Math.floor(hs || 6)); ps = ps || 0; pl = pl === undefined ? Math.PI * 2 : pl; ts = ts || 0; tl = tl === undefined ? Math.PI : tl;
+  const pos = [], nor = [], uv = [], idx = [], grid = [];
+  for (let iy = 0; iy <= hs; iy++) { const row = [], v = iy / hs;
+    for (let ix = 0; ix <= ws; ix++) { const u = ix / ws, x = -r * Math.cos(ps + u * pl) * Math.sin(ts + v * tl), y = r * Math.cos(ts + v * tl), z = r * Math.sin(ps + u * pl) * Math.sin(ts + v * tl);
+      pos.push(x, y, z); const l = Math.hypot(x, y, z) || 1; nor.push(x / l, y / l, z / l); uv.push(u, 1 - v); row.push(pos.length / 3 - 1); }
+    grid.push(row); }
+  for (let iy = 0; iy < hs; iy++) for (let ix = 0; ix < ws; ix++) { const a = grid[iy][ix + 1], b = grid[iy][ix], c = grid[iy + 1][ix], d = grid[iy + 1][ix + 1]; if (iy !== 0 || ts > 0) idx.push(a, b, d); if (iy !== hs - 1 || ts + tl < Math.PI) idx.push(b, c, d); }
+  return build(pos, nor, uv, idx);
+};
+T.CircleGeometry = function (r, seg, ts, tl) {
+  r = r === undefined ? 1 : r; seg = Math.max(3, seg || 8); ts = ts || 0; tl = tl === undefined ? Math.PI * 2 : tl;
+  const pos = [0, 0, 0], nor = [0, 0, 1], uv = [0.5, 0.5], idx = [];
+  for (let i = 0; i <= seg; i++) { const a = ts + i / seg * tl; pos.push(r * Math.cos(a), r * Math.sin(a), 0); nor.push(0, 0, 1); uv.push((Math.cos(a) + 1) / 2, (Math.sin(a) + 1) / 2); }
+  for (let i = 1; i <= seg; i++) idx.push(i, i + 1, 0);
+  return build(pos, nor, uv, idx);
+};
+T.TorusGeometry = function (R, tube, rs, ts, arc) {
+  R = R === undefined ? 1 : R; tube = tube === undefined ? 0.4 : tube; rs = Math.floor(rs || 8); ts = Math.floor(ts || 6); arc = arc === undefined ? Math.PI * 2 : arc;
+  const pos = [], nor = [], uv = [], idx = [];
+  for (let j = 0; j <= rs; j++) for (let i = 0; i <= ts; i++) { const u = i / ts * arc, v = j / rs * Math.PI * 2, x = (R + tube * Math.cos(v)) * Math.cos(u), y = (R + tube * Math.cos(v)) * Math.sin(u), z = tube * Math.sin(v);
+    pos.push(x, y, z); const nx = x - R * Math.cos(u), ny = y - R * Math.sin(u), l = Math.hypot(nx, ny, z) || 1; nor.push(nx / l, ny / l, z / l); uv.push(i / ts, j / rs); }
+  for (let j = 1; j <= rs; j++) for (let i = 1; i <= ts; i++) { const a = (ts + 1) * j + i - 1, b = (ts + 1) * (j - 1) + i - 1, c = (ts + 1) * (j - 1) + i, d = (ts + 1) * j + i; idx.push(a, b, d, b, c, d); }
+  return build(pos, nor, uv, idx);
+};
+T.OctahedronGeometry = function (r) {
+  r = r === undefined ? 1 : r;
+  const V = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]], F = [[0, 2, 4], [0, 4, 3], [0, 3, 5], [0, 5, 2], [1, 2, 5], [1, 5, 3], [1, 3, 4], [1, 4, 2]];
+  const pos = [], nor = [], uv = [], idx = [];
+  F.forEach(f => { const n = [0, 0, 0]; f.forEach(i => { n[0] += V[i][0]; n[1] += V[i][1]; n[2] += V[i][2]; }); const l = Math.hypot(n[0], n[1], n[2]);
+    f.forEach(i => { pos.push(V[i][0] * r, V[i][1] * r, V[i][2] * r); nor.push(n[0] / l, n[1] / l, n[2] / l); uv.push(0, 0); idx.push(pos.length / 3 - 1); }); });
+  return build(pos, nor, uv, idx);
+};
+T.LatheGeometry = function (points, segs) {
+  segs = Math.floor(segs || 12);
+  const pos = [], nor = [], uv = [], idx = [], n = points.length, pn = [];
+  for (let j = 0; j < n; j++) { const a = points[Math.max(0, j - 1)], b = points[Math.min(n - 1, j + 1)], dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1; pn.push([dy / l, -dx / l]); }
+  for (let i = 0; i <= segs; i++) { const phi = i / segs * Math.PI * 2, s = Math.sin(phi), c = Math.cos(phi);
+    for (let j = 0; j < n; j++) { pos.push(points[j].x * s, points[j].y, points[j].x * c); nor.push(pn[j][0] * s, pn[j][1], pn[j][0] * c); uv.push(i / segs, j / (n - 1)); } }
+  for (let i = 0; i < segs; i++) for (let j = 0; j < n - 1; j++) { const a = i * n + j, b = (i + 1) * n + j, c = (i + 1) * n + j + 1, d = i * n + j + 1; idx.push(a, b, d, b, c, d); }
+  return build(pos, nor, uv, idx);
+};
+T.CatmullRomCurve3 = class {
+  constructor(pts, closed) { this.points = pts; this.closed = !!closed; }
+  getPoint(t) {
+    const P = this.points, n = P.length, f = t * (n - 1), i = Math.min(n - 2, Math.floor(f)), u = f - i;
+    const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(n - 1, i + 2)], u2 = u * u, u3 = u2 * u;
+    const q = (a, b, c, d) => 0.5 * ((2 * b) + (-a + c) * u + (2 * a - 5 * b + 4 * c - d) * u2 + (-a + 3 * b - 3 * c + d) * u3);
+    return new Vector3(q(p0.x, p1.x, p2.x, p3.x), q(p0.y, p1.y, p2.y, p3.y), q(p0.z, p1.z, p2.z, p3.z));
+  }
+};
+T.TubeGeometry = function (path, ts, radius, rs) {
+  ts = Math.floor(ts || 64); radius = radius === undefined ? 1 : radius; rs = Math.floor(rs || 8);
+  const pos = [], nor = [], uv = [], idx = [], P = [], Tn = [];
+  for (let i = 0; i <= ts; i++) P.push(path.getPoint(i / ts));
+  for (let i = 0; i <= ts; i++) { const a = P[Math.max(0, i - 1)], b = P[Math.min(ts, i + 1)]; Tn.push(new Vector3().subVectors(b, a).normalize()); }
+  let N = new Vector3(0, 1, 0); if (Math.abs(Tn[0].y) > 0.9) N.set(1, 0, 0);
+  for (let i = 0; i <= ts; i++) {
+    const tg = Tn[i]; N = new Vector3().copy(N).addScaledVector(tg, -N.dot(tg)).normalize(); const B = new Vector3().crossVectors(tg, N).normalize();
+    for (let j = 0; j <= rs; j++) { const v = j / rs * Math.PI * 2, c = Math.cos(v), s = Math.sin(v), nx = c * N.x + s * B.x, ny = c * N.y + s * B.y, nz = c * N.z + s * B.z;
+      pos.push(P[i].x + radius * nx, P[i].y + radius * ny, P[i].z + radius * nz); nor.push(nx, ny, nz); uv.push(i / ts, j / rs); } }
+  for (let i = 0; i < ts; i++) for (let j = 0; j < rs; j++) { const a = i * (rs + 1) + j, b = (i + 1) * (rs + 1) + j, c = (i + 1) * (rs + 1) + j + 1, d = i * (rs + 1) + j + 1; idx.push(a, b, d, b, c, d); }
+  return build(pos, nor, uv, idx);
+};
+
+// Shape: polygon outline (lineTo only) ; triangulated by ear clipping
+T.Shape = class { constructor() { this.pts = []; } moveTo(x, y) { this.pts = [[x, y]]; return this; } lineTo(x, y) { this.pts.push([x, y]); return this; } closePath() { return this; } };
+function area2(p) { let s = 0; for (let i = 0, n = p.length; i < n; i++) { const a = p[i], b = p[(i + 1) % n]; s += a[0] * b[1] - b[0] * a[1]; } return s; }
+function earClip(p) {   // p CCW; returns triangle index triples
+  const n = p.length, V = []; for (let i = 0; i < n; i++) V.push(i);
+  const out = [], inTri = (a, b, c, q) => { const d1 = (q[0] - b[0]) * (a[1] - b[1]) - (a[0] - b[0]) * (q[1] - b[1]), d2 = (q[0] - c[0]) * (b[1] - c[1]) - (b[0] - c[0]) * (q[1] - c[1]), d3 = (q[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (q[1] - a[1]);
+    return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0)); };
+  let guard = n * n + 10;
+  while (V.length > 3 && guard-- > 0) {
+    let ear = false;
+    for (let i = 0; i < V.length; i++) {
+      const i0 = V[(i + V.length - 1) % V.length], i1 = V[i], i2 = V[(i + 1) % V.length], a = p[i0], b = p[i1], c = p[i2];
+      if ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) <= 1e-12) continue;
+      let ok = true; for (const k of V) { if (k === i0 || k === i1 || k === i2) continue; if (inTri(a, b, c, p[k])) { ok = false; break; } }
+      if (ok) { out.push([i0, i1, i2]); V.splice(i, 1); ear = true; break; }
+    }
+    if (!ear) break;
+  }
+  if (V.length === 3) out.push([V[0], V[1], V[2]]);
+  return out;
+}
+T.ShapeGeometry = function (shape) {
+  let p = shape.pts.slice(); if (area2(p) < 0) p.reverse();
+  const pos = [], nor = [], uv = [], idx = [];
+  p.forEach(q => { pos.push(q[0], q[1], 0); nor.push(0, 0, 1); uv.push(q[0], q[1]); });
+  earClip(p).forEach(t => idx.push(t[0], t[1], t[2]));
+  return build(pos, nor, uv, idx);
+};
+T.ExtrudeGeometry = function (shape, o) {
+  const depth = (o && o.depth !== undefined) ? o.depth : 100; let p = shape.pts.slice(); if (area2(p) < 0) p.reverse();
+  const n = p.length, pos = [], nor = [], uv = [], idx = [], tris = earClip(p);
+  for (const z of [0, depth]) { const s = pos.length / 3, nz = z === 0 ? -1 : 1; p.forEach(q => { pos.push(q[0], q[1], z); nor.push(0, 0, nz); uv.push(q[0], q[1]); }); tris.forEach(t => idx.push(s + t[0], s + t[1], s + t[2])); }
+  for (let i = 0; i < n; i++) { const a = p[i], b = p[(i + 1) % n], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, nx = dy / l, ny = -dx / l, s = pos.length / 3;
+    pos.push(a[0], a[1], 0, b[0], b[1], 0, b[0], b[1], depth, a[0], a[1], depth); for (let k = 0; k < 4; k++) nor.push(nx, ny, 0); uv.push(0, 0, 1, 0, 1, 1, 0, 1); idx.push(s, s + 1, s + 2, s, s + 2, s + 3); }
+  return build(pos, nor, uv, idx);
+};
+
+class Mesh extends Object3D { constructor(g, m) { super(); this.geometry = g || new BufferGeometry(); this.material = m || new MeshBasicMaterial(); this.isMesh = true; } }
+class InstancedMesh extends Mesh {
+  constructor(g, m, count) { super(g, m); this.count = count; this.instanceMatrix = { array: new Float32Array(count * 16), needsUpdate: false }; this.instanceColor = null; this.isInstanced = true; }
+  setMatrixAt(i, m) { const a = this.instanceMatrix.array, e = m.elements; for (let k = 0; k < 16; k++) a[i * 16 + k] = e[k]; }
+  setColorAt(i, c) { if (!this.instanceColor) { const a = new Float32Array(this.instanceMatrix.array.length / 16 * 3).fill(1); this.instanceColor = { array: a, needsUpdate: false }; } const a = this.instanceColor.array; a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }
+}
+class Points extends Object3D { constructor(g, m) { super(); this.geometry = g; this.material = m; this.isPoints = true; } }
+class Sprite extends Object3D { constructor(m) { super(); this.material = m || new SpriteMaterial(); this.isSprite = true; } }
+T.Mesh = Mesh; T.InstancedMesh = InstancedMesh; T.Points = Points; T.Sprite = Sprite;
+
+/* ------------------------------ software renderer ------------------------------ */
+const NEAR = 0.1;
+const REC = 4;   // spare vertex slots for clipping / billboards
+let CAP = 0;
+let VX, VY, VZ, VU, VV, LR, LG, LB, AR, AG, AB, WX, WY, WZ, SX, SY, IW;
+function ensureCap(n) {
+  if (n + 16 <= CAP) return;
+  CAP = Math.max(4096, (n + 16) * 2 | 0);
+  const f = () => new Float32Array(CAP), d = () => new Float64Array(CAP);
+  VX = f(); VY = f(); VZ = f(); VU = f(); VV = f(); LR = f(); LG = f(); LB = f(); AR = f(); AG = f(); AB = f(); WX = f(); WY = f(); WZ = f(); SX = d(); SY = d(); IW = d();
+}
+ensureCap(8192);
+
+let gDY20 = 0, gDY10 = 0, gDX10 = 0, gDX20 = 0, gID = 0;
+function GX(a0, a1, a2) { return ((a1 - a0) * gDY20 - (a2 - a0) * gDY10) * gID; }
+function GY(a0, a1, a2) { return ((a2 - a0) * gDX10 - (a1 - a0) * gDX20) * gID; }
+const F32 = new Float32Array(1), I32 = new Int32Array(F32.buffer);
+class SoftRenderer {
+  constructor(o) {
+    o = o || {};
+    this.domElement = o.canvas || document.createElement('canvas');
+    this.ctx = this.domElement.getContext('2d', { alpha: false });
+    this.pr = 1; this.cssW = 320; this.cssH = 180; this.W = 0; this.H = 0;
+    this.budget = T.softBudget || 130000;     // internal pixels at pixelRatio 1
+    this.img = null; this.col = null; this.dep = null;
+    this.stats = { tris: 0, drawn: 0, meshes: 0, ms: 0 };
+    this.view = new Matrix4(); this.cam = new Vector3();
+    this.lights = []; this.hemi = { sr: 0, sg: 0, sb: 0, gr: 0, gg: 0, gb: 0 }; this.dirs = [];
+    this.fogT = new Float32Array(512); this.fogOn = false; this.fogScale = 1; this.fogCol = [0, 0, 0]; this.fogDens = -1;
+    this.nearTree = T.softNearTree || 38;
+  }
+  setPixelRatio(r) { this.pr = Math.max(0.2, r || 1); this._size(); }
+  setSize(w, h) { this.cssW = w; this.cssH = h; this._size(); }
+  _size() {
+    const asp = this.cssW / Math.max(1, this.cssH), area = this.budget * this.pr * this.pr;
+    const bh = Math.max(24, Math.round(Math.sqrt(area / asp))), bw = Math.max(32, Math.round(bh * asp));
+    if (bw === this.W && bh === this.H) { this.domElement.style.width = this.cssW + 'px'; this.domElement.style.height = this.cssH + 'px'; return; }
+    this.W = bw; this.H = bh; const c = this.domElement; c.width = bw; c.height = bh; c.style.width = this.cssW + 'px'; c.style.height = this.cssH + 'px';
+    this.img = this.ctx.createImageData(bw, bh); this.out = new Uint32Array(this.img.data.buffer); this.col = new Uint32Array(bw * bh); this.dep = new Float32Array(bw * bh);
+  }
+  dispose() {}
+
+  render(scene, camera) {
+    const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (!this.col) this._size();
+    scene.updateMatrixWorld(); if (!camera.parent) camera.updateMatrixWorld();
+    const W = this.W, H = this.H, col = this.col, dep = this.dep;
+    this.view.invertAffine(camera.matrixWorld);
+    this.cam.setFromMatrixPosition(camera.matrixWorld);
+    this.F = (H / 2) / Math.tan(camera.fov * Math.PI / 360); this.cx = W / 2; this.cy = H / 2;
+    this.tanX = (W / 2) / this.F; this.tanY = (H / 2) / this.F; this.far = camera.far || 700;
+    // background + fog table
+    const bg = scene.background && scene.background.isColor ? scene.background : new Color(0);
+    const bgp = 0xff000000 | ((bg.b * 255 | 0) << 16) | ((bg.g * 255 | 0) << 8) | (bg.r * 255 | 0);
+    col.fill(bgp); dep.fill(0);
+    const fog = scene.fog; this.fogOn = !!fog;
+    if (fog) { this.fogCol = [fog.color.r, fog.color.g, fog.color.b]; if (fog.density !== this.fogDens) { this.fogDens = fog.density; const dmax = 2.6 / Math.max(1e-6, fog.density); this.fogScale = 511 / dmax;
+      for (let i = 0; i < 512; i++) { const d = i / this.fogScale, q = d * fog.density; this.fogT[i] = Math.exp(-q * q); } this.fogT[511] = 0; } this.fogMaxD = 2.6 / Math.max(1e-6, fog.density); }
+    else this.fogMaxD = 1e9;
+    // collect
+    const L = [], meshes = [], trans = [], sprites = [], pts = [];
+    const hemi = this.hemi; hemi.sr = hemi.sg = hemi.sb = hemi.gr = hemi.gg = hemi.gb = 0; const dirs = this.dirs; dirs.length = 0;
+    const v3 = new Vector3(), v3b = new Vector3();
+    const walk = (o) => {
+      if (!o.visible) return;
+      if (o.isLight) {
+        if (o.intensity > 0) {
+          if (o.isHemi) { hemi.sr += o.color.r * o.intensity; hemi.sg += o.color.g * o.intensity; hemi.sb += o.color.b * o.intensity; hemi.gr += o.groundColor.r * o.intensity; hemi.gg += o.groundColor.g * o.intensity; hemi.gb += o.groundColor.b * o.intensity; }
+          else if (o.isDir) { v3.setFromMatrixPosition(o.matrixWorld); v3b.setFromMatrixPosition(o.target.matrixWorld); v3.sub(v3b).normalize(); dirs.push([v3.x, v3.y, v3.z, o.color.r * o.intensity, o.color.g * o.intensity, o.color.b * o.intensity]); }
+          else if (o.isPoint || o.isSpot) {
+            v3.setFromMatrixPosition(o.matrixWorld); const e = { x: v3.x, y: v3.y, z: v3.z, r: o.color.r * o.intensity, g: o.color.g * o.intensity, b: o.color.b * o.intensity, dist: o.distance > 0 ? o.distance : 1e4, decay: o.distance > 0 ? o.decay : 0, spot: !!o.isSpot, dx: 0, dy: 0, dz: 0, co: 0, ci: 0 };
+            if (o.isSpot) { v3b.setFromMatrixPosition(o.target.matrixWorld); v3b.sub(v3).normalize(); e.dx = v3b.x; e.dy = v3b.y; e.dz = v3b.z; e.co = Math.cos(o.angle); e.ci = Math.cos(o.angle * (1 - o.penumbra)); }
+            e.lut = new Float32Array(129); for (let i = 0; i <= 128; i++) e.lut[i] = Math.pow(i / 128, e.decay); L.push(e);
+          }
+        }
+      } else if (o.isMesh) { const m = Array.isArray(o.material) ? o.material[0] : o.material; if (m && m.visible !== false) { if (m.transparent || m.opacity < 1 || m.blending === 2) trans.push(o); else meshes.push(o); } }
+      else if (o.isSprite) sprites.push(o);
+      else if (o.isPoints) pts.push(o);
+      const ch = o.children; for (let i = 0; i < ch.length; i++) walk(ch[i]);
+    };
+    walk(scene);
+    this.lights = L;
+    // stars
+    for (const p of pts) this._points(p);
+    // opaque
+    this.stats.tris = 0; this.stats.drawn = 0; this.stats.meshes = 0;
+    const cp0 = this.cam; meshes.forEach(o => { const e = o.matrixWorld.elements, b = o.geometry.bounds ? o.geometry.bounds() : null; const dx = e[12] - cp0.x, dy = e[13] - cp0.y, dz = e[14] - cp0.z; o._d = (b && b.r * Math.max(Math.hypot(e[0], e[1], e[2]), 1) > 60) ? 1e12 : dx * dx + dy * dy + dz * dz; });
+    meshes.sort((a, b) => a._d - b._d);
+    for (const m of meshes) this._mesh(m);
+    // transparent: far to near
+    const cp = this.cam;
+    const dist = (o) => { const e = o.matrixWorld.elements; const dx = e[12] - cp.x, dy = e[13] - cp.y, dz = e[14] - cp.z; return dx * dx + dy * dy + dz * dz; };
+    const tl = trans.concat(sprites); tl.forEach(o => { o._d = dist(o); });
+    tl.sort((a, b) => (a.renderOrder - b.renderOrder) || (b._d - a._d));
+    for (const o of tl) { if (o.isSprite) this._sprite(o); else this._mesh(o); }
+    if (this.post !== false) this._post(); else this.out.set(this.col);
+    this.ctx.putImageData(this.img, 0, 0);
+    this.stats.ms = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
+  }
+
+  // cheap anti-aliasing on edges + light sharpening on flat areas
+  _post() {
+    const W = this.W, H = this.H, s = this.col, d = this.out;
+    for (let x = 0; x < W; x++) { d[x] = s[x]; d[(H - 1) * W + x] = s[(H - 1) * W + x]; }
+    for (let y = 1; y < H - 1; y++) {
+      let i = y * W; d[i] = s[i]; d[i + W - 1] = s[i + W - 1]; i++;
+      for (let x = 1; x < W - 1; x++, i++) {
+        const c = s[i], n = s[i - W], so = s[i + W], w = s[i - 1], e = s[i + 1];
+        const cr = c & 255, cg = (c >> 8) & 255, cb = (c >> 16) & 255, nr = n & 255, ng = (n >> 8) & 255, nb = (n >> 16) & 255, sr = so & 255, sg = (so >> 8) & 255, sb = (so >> 16) & 255, wr = w & 255, wg = (w >> 8) & 255, wb = (w >> 16) & 255, er = e & 255, eg = (e >> 8) & 255, eb = (e >> 16) & 255;
+        const lc = (cr * 77 + cg * 150 + cb * 29) >> 8, ln = (nr * 77 + ng * 150 + nb * 29) >> 8, ls = (sr * 77 + sg * 150 + sb * 29) >> 8, lw = (wr * 77 + wg * 150 + wb * 29) >> 8, le = (er * 77 + eg * 150 + eb * 29) >> 8;
+        let mx = lc, mn = lc; if (ln > mx) mx = ln; else if (ln < mn) mn = ln; if (ls > mx) mx = ls; else if (ls < mn) mn = ls; if (lw > mx) mx = lw; else if (lw < mn) mn = lw; if (le > mx) mx = le; else if (le < mn) mn = le;
+        let R, G, B;
+        if (mx - mn > 7 + (mx >> 4)) {
+          const dh = Math.abs(ln + ls - 2 * lc), dv = Math.abs(lw + le - 2 * lc);
+          if (dh >= dv) { R = (2 * cr + nr + sr) >> 2; G = (2 * cg + ng + sg) >> 2; B = (2 * cb + nb + sb) >> 2; }
+          else { R = (2 * cr + wr + er) >> 2; G = (2 * cg + wg + eg) >> 2; B = (2 * cb + wb + eb) >> 2; }
+        } else {
+          R = cr + (((cr << 2) - nr - sr - wr - er) * 0.1); G = cg + (((cg << 2) - ng - sg - wg - eg) * 0.1); B = cb + (((cb << 2) - nb - sb - wb - eb) * 0.1);
+          R = R < 0 ? 0 : R > 255 ? 255 : R; G = G < 0 ? 0 : G > 255 ? 255 : G; B = B < 0 ? 0 : B > 255 ? 255 : B;
+        }
+        d[i] = 0xff000000 | ((B | 0) << 16) | ((G | 0) << 8) | (R | 0);
+      }
+    }
+  }
+
+  _points(p) {
+    const g = p.geometry.attributes.position.array, M = new Matrix4().multiplyMatrices(this.view, p.matrixWorld).elements, m = p.material;
+    const W = this.W, H = this.H, F = this.F, col = this.col, sz = Math.max(1, Math.round((m.size || 1) * (W / Math.max(1, this.cssW)) * 1.0));
+    const c = 0xff000000 | ((clamp(m.color.b, 0, 1) * 255 | 0) << 16) | ((clamp(m.color.g, 0, 1) * 255 | 0) << 8) | (clamp(m.color.r, 0, 1) * 255 | 0);
+    for (let i = 0; i < g.length; i += 3) {
+      const x = g[i], y = g[i + 1], z = g[i + 2], vx = M[0] * x + M[4] * y + M[8] * z + M[12], vy = M[1] * x + M[5] * y + M[9] * z + M[13], zf = -(M[2] * x + M[6] * y + M[10] * z + M[14]);
+      if (zf < NEAR) continue; const sx = (vx / zf * F + this.cx) | 0, sy = (this.cy - vy / zf * F) | 0;
+      if (sx < 0 || sy < 0 || sx + sz > W || sy + sz > H) continue;
+      for (let yy = 0; yy < sz; yy++) for (let xx = 0; xx < sz; xx++) col[(sy + yy) * W + sx + xx] = c;
+    }
+  }
+
+  // set per-material raster state
+  _state(mat, bias) {
+    const S = this.S || (this.S = {});
+    S.mat = mat; S.blend = mat.blending === 2 ? 2 : ((mat.transparent && (mat.opacity < 1 || mat.map)) ? 1 : 0);
+    S.opacity = mat.opacity; S.fog = this.fogOn && mat.fog; S.dw = mat.depthWrite && S.blend !== 2; S.dt = mat.depthTest;
+    S.bias = mat.polygonOffset ? 1.0006 : 1.0; S.tex = null; S.texAlpha = false;
+    if (mat.map) { const lv = mat.map.levels(); S.tex = lv; S.rx = mat.map.repeat.x; S.ry = mat.map.repeat.y; S.wrapS = mat.map.wrapS === 1000; S.wrapT = mat.map.wrapT === 1000; S.texAlpha = !!mat.transparent; S.tw = lv[0].w; S.th = lv[0].h; S.maxL = lv.length - 1; }
+    return S;
+  }
+
+  _mesh(mesh, matO, gs, gc) {
+    if (!matO && Array.isArray(mesh.material)) {
+      const g = mesh.geometry.groups || [{ start: 0, count: Infinity, materialIndex: 0 }];
+      for (const gr of g) { const m = mesh.material[gr.materialIndex]; if (m && m.visible !== false) this._mesh(mesh, m, gr.start, gr.count); }
+      return;
+    }
+    const mat = matO || mesh.material, geo = mesh.geometry; if (!geo.attributes.position) return;
+    const S = this._state(mat), self = this, bnd = geo.bounds();
+    this.stats.meshes++;
+    const wm = mesh.matrixWorld.elements;
+    const sMax = Math.max(Math.hypot(wm[0], wm[1], wm[2]), Math.hypot(wm[4], wm[5], wm[6]), Math.hypot(wm[8], wm[9], wm[10]));
+    const lit = !!mat.lit;
+    // relevant point/spot lights
+    const rel = [];
+    const baseM = mesh.matrixWorld;
+    if (!mesh.isInstanced) {
+      if (lit) {
+        const cwx = wm[0] * bnd.cx + wm[4] * bnd.cy + wm[8] * bnd.cz + wm[12], cwy = wm[1] * bnd.cx + wm[5] * bnd.cy + wm[9] * bnd.cz + wm[13], cwz = wm[2] * bnd.cx + wm[6] * bnd.cy + wm[10] * bnd.cz + wm[14], rr = bnd.r * sMax;
+        for (const l of this.lights) { const dx = l.x - cwx, dy = l.y - cwy, dz = l.z - cwz, R = l.dist + rr; if (dx * dx + dy * dy + dz * dz < R * R) rel.push(l); }
+      }
+      // frustum cull whole mesh
+      const e = this.view.elements, cx = e[0] * (wm[0] * bnd.cx + wm[4] * bnd.cy + wm[8] * bnd.cz + wm[12]) + e[4] * (wm[1] * bnd.cx + wm[5] * bnd.cy + wm[9] * bnd.cz + wm[13]) + e[8] * (wm[2] * bnd.cx + wm[6] * bnd.cy + wm[10] * bnd.cz + wm[14]) + e[12];
+      const cy = e[1] * (wm[0] * bnd.cx + wm[4] * bnd.cy + wm[8] * bnd.cz + wm[12]) + e[5] * (wm[1] * bnd.cx + wm[5] * bnd.cy + wm[9] * bnd.cz + wm[13]) + e[9] * (wm[2] * bnd.cx + wm[6] * bnd.cy + wm[10] * bnd.cz + wm[14]) + e[13];
+      const cz = -(e[2] * (wm[0] * bnd.cx + wm[4] * bnd.cy + wm[8] * bnd.cz + wm[12]) + e[6] * (wm[1] * bnd.cx + wm[5] * bnd.cy + wm[9] * bnd.cz + wm[13]) + e[10] * (wm[2] * bnd.cx + wm[6] * bnd.cy + wm[10] * bnd.cz + wm[14]) + e[14]);
+      const rr = bnd.r * sMax;
+      if (cz + rr < NEAR || cz - rr > this.far) return;
+      if (mat.fog && this.fogOn && cz - rr > this.fogMaxD) return;
+      if (Math.abs(cx) > (cz + rr) * this.tanX + rr * 1.5 || Math.abs(cy) > (cz + rr) * this.tanY + rr * 1.5) return;
+      this._geom(geo, mat, S, baseM.elements, null, lit, rel, false, gs, gc);
+      return;
+    }
+    // instanced
+    const im = mesh.instanceMatrix.array, ic = mesh.instanceColor ? mesh.instanceColor.array : null, n = Math.min(mesh.count, im.length / 16);
+    const tmp = new Matrix4(), inst = new Matrix4(), vw = this.view.elements, nt = this.nearTree;
+    const bb = geo._lod || (geo._lod = (() => { const p = geo.attributes.position.array, c = geo.attributes.color ? geo.attributes.color.array : null; let rr = 0, sr = 0, sg = 0, sb = 0, k = 0;
+      for (let i = 0; i < p.length; i += 3) { rr = Math.max(rr, Math.hypot(p[i], p[i + 2])); if (c) { sr += c[i]; sg += c[i + 1]; sb += c[i + 2]; k++; } }
+      return { rad: rr, r: k ? sr / k : 1, g: k ? sg / k : 1, b: k ? sb / k : 1 }; })());
+    const bsR = bnd.r;
+    for (let i = 0; i < n; i++) {
+      const o = i * 16; const m0 = im[o]; if (m0 === 0 && im[o + 5] === 0) continue;
+      inst.elements = Array.prototype.slice.call(im, o, o + 16);
+      tmp.multiplyMatrices(mesh.matrixWorld, inst);
+      const e = tmp.elements, sc = Math.max(Math.hypot(e[0], e[1], e[2]), Math.hypot(e[4], e[5], e[6]), Math.hypot(e[8], e[9], e[10]));
+      const wx = e[0] * bnd.cx + e[4] * bnd.cy + e[8] * bnd.cz + e[12], wy = e[1] * bnd.cx + e[5] * bnd.cy + e[9] * bnd.cz + e[13], wz = e[2] * bnd.cx + e[6] * bnd.cy + e[10] * bnd.cz + e[14];
+      const vx = vw[0] * wx + vw[4] * wy + vw[8] * wz + vw[12], vy = vw[1] * wx + vw[5] * wy + vw[9] * wz + vw[13], zf = -(vw[2] * wx + vw[6] * wy + vw[10] * wz + vw[14]), rr = bsR * sc;
+      if (zf + rr < NEAR || zf - rr > this.far || zf - rr > this.fogMaxD) continue;
+      if (Math.abs(vx) > (zf + rr) * this.tanX + rr || Math.abs(vy) > (zf + rr) * this.tanY + rr) continue;
+      const tint = ic ? [ic[i * 3], ic[i * 3 + 1], ic[i * 3 + 2]] : null;
+      if (zf > nt) { this._billboard(bb, bnd, e, vx, vy, zf, sc, tint, mat, S); continue; }
+      // near: full geometry, per-vertex point/spot lights
+      const relI = [];
+      if (lit) for (const l of this.lights) { const dx = l.x - wx, dy = l.y - wy, dz = l.z - wz, R = l.dist + rr; if (dx * dx + dy * dy + dz * dz < R * R) relI.push(l); }
+      this._geom(geo, mat, S, e, tint, lit, relI, true, gs, gc);
+    }
+  }
+
+  _billboard(bb, bnd, e, vx, vy, zf, sc, tint, mat, S) {
+    // single screen-facing triangle for a far tree
+    const h = (bnd.y1 - bnd.y0) * sc, hw = Math.max(0.4, bb.rad * sc * 0.85), baseY = bnd.y0 * sc;
+    const vw = this.view.elements;
+    // world -> view for the instance origin
+    const ox = vw[0] * e[12] + vw[4] * e[13] + vw[8] * e[14] + vw[12], oy = vw[1] * e[12] + vw[5] * e[13] + vw[9] * e[14] + vw[13], oz = -(vw[2] * e[12] + vw[6] * e[13] + vw[10] * e[14] + vw[14]);
+    if (oz < NEAR) return;
+    let ux = vw[4], uy = vw[5]; const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;   // world-up in view (x,y)
+    const rx = uy, ry = -ux;
+    const by = baseY + h * 0.12;
+    const hs = this.hemi, ar = Math.min(1.2, (hs.sr * 0.75 + hs.gr * 0.25)), ag = Math.min(1.2, (hs.sg * 0.75 + hs.gg * 0.25)), ab = Math.min(1.2, (hs.sb * 0.75 + hs.gb * 0.25));
+    const cr = bb.r * (tint ? tint[0] : 1) * ar, cg = bb.g * (tint ? tint[1] : 1) * ag, cb = bb.b * (tint ? tint[2] : 1) * ab;
+    const P = [[ox + rx * -hw + ux * by, oy + ry * -hw + uy * by], [ox + rx * hw + ux * by, oy + ry * hw + uy * by], [ox + ux * (baseY + h), oy + uy * (baseY + h)]];
+    ensureCap(8); const n0 = CAP - 8;
+    for (let k = 0; k < 3; k++) { const s = n0 + k; VX[s] = P[k][0]; VY[s] = P[k][1]; VZ[s] = oz; VU[s] = 0; VV[s] = 0; LR[s] = cr; LG[s] = cg; LB[s] = cb; AR[s] = 0; AG[s] = 0; AB[s] = 0; WX[s] = 0; WY[s] = 0; WZ[s] = 0; SX[s] = P[k][0] / oz * this.F + this.cx; SY[s] = this.cy - P[k][1] / oz * this.F; IW[s] = 1 / oz; }
+    const St = this._st0 || (this._st0 = {});
+    Object.assign(St, S); St.tex = null; St.ppl = false; St.nx = 0; St.ny = 1; St.nz = 0; St.lodB = 0; St.bias = 1; St.side = 2;
+    this._raster(n0, n0 + 1, n0 + 2, St);
+  }
+
+  _geom(geo, mat, S, M, tint, lit, rel, instanced, gs, gc) {
+    const P = geo.attributes.position.array, nv = P.length / 3;
+    ensureCap(nv + REC);
+    const N = geo.attributes.normal ? geo.attributes.normal.array : null, UV = geo.attributes.uv ? geo.attributes.uv.array : null, CC = (mat.vertexColors && geo.attributes.color) ? geo.attributes.color.array : null;
+    const vw = this.view.elements, F = this.F, cx = this.cx, cy = this.cy;
+    // MV = view * M
+    const MV = this._mv || (this._mv = new Matrix4()), Mm = this._mm || (this._mm = new Matrix4());
+    Mm.elements = M.elements ? M.elements : M; const mm = Mm.elements;
+    MV.multiplyMatrices(this.view, Mm); const mv = MV.elements;
+    const br = mat.color.r * (tint ? tint[0] : 1), bg = mat.color.g * (tint ? tint[1] : 1), bb = mat.color.b * (tint ? tint[2] : 1);
+    const er = mat.emissive.r * mat.emissiveIntensity, eg = mat.emissive.g * mat.emissiveIntensity, eb = mat.emissive.b * mat.emissiveIntensity;
+    const hs = this.hemi, dirs = this.dirs, two = mat.side === 2;
+    const perVertexPoint = instanced && rel.length > 0, needW = perVertexPoint || (!instanced && rel.length > 0);
+    const ppl = !instanced && rel.length > 0;
+    const m0 = mm[0], m1 = mm[1], m2 = mm[2], m4 = mm[4], m5 = mm[5], m6 = mm[6], m8 = mm[8], m9 = mm[9], m10 = mm[10], m12 = mm[12], m13 = mm[13], m14 = mm[14];
+    for (let i = 0; i < nv; i++) {
+      const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2];
+      const vx = mv[0] * x + mv[4] * y + mv[8] * z + mv[12], vy = mv[1] * x + mv[5] * y + mv[9] * z + mv[13], zf = -(mv[2] * x + mv[6] * y + mv[10] * z + mv[14]);
+      VX[i] = vx; VY[i] = vy; VZ[i] = zf;
+      if (zf >= NEAR) { const iw = 1 / zf; IW[i] = iw; SX[i] = vx * iw * F + cx; SY[i] = cy - vy * iw * F; }
+      if (UV) { VU[i] = UV[i * 2]; VV[i] = UV[i * 2 + 1]; }
+      let ar = br, ag = bg, ab = bb;
+      if (CC) { ar *= CC[i * 3]; ag *= CC[i * 3 + 1]; ab *= CC[i * 3 + 2]; }
+      let wx = 0, wy = 0, wz = 0;
+      if (needW) { wx = m0 * x + m4 * y + m8 * z + m12; wy = m1 * x + m5 * y + m9 * z + m13; wz = m2 * x + m6 * y + m10 * z + m14; WX[i] = wx; WY[i] = wy; WZ[i] = wz; }
+      if (lit) {
+        let nx = 0, ny = 1, nz = 0;
+        if (N) { const a = N[i * 3], b = N[i * 3 + 1], c = N[i * 3 + 2]; nx = m0 * a + m4 * b + m8 * c; ny = m1 * a + m5 * b + m9 * c; nz = m2 * a + m6 * b + m10 * c; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l; }
+        const hk = two ? 0.5 : 0.5 + 0.5 * ny;
+        let lr = hs.gr + (hs.sr - hs.gr) * hk, lg = hs.gg + (hs.sg - hs.gg) * hk, lb = hs.gb + (hs.sb - hs.gb) * hk;
+        for (let d = 0; d < dirs.length; d++) { const D = dirs[d]; let dd = nx * D[0] + ny * D[1] + nz * D[2]; if (two) dd = Math.abs(dd); if (dd > 0) { lr += D[3] * dd; lg += D[4] * dd; lb += D[5] * dd; } }
+        if (perVertexPoint) {
+          for (let k = 0; k < rel.length; k++) { const l = rel[k]; let dx = l.x - wx, dy = l.y - wy, dz = l.z - wz; const d2 = dx * dx + dy * dy + dz * dz; if (d2 >= l.dist * l.dist) continue; const d = Math.sqrt(d2) || 1e-6; dx /= d; dy /= d; dz /= d;
+            let nl = nx * dx + ny * dy + nz * dz; if (two) nl = Math.abs(nl); if (nl <= 0) continue;
+            let at = l.decay ? l.lut[(1 - d / l.dist) * 128 | 0] : 1;
+            if (l.spot) { const cs = -(dx * l.dx + dy * l.dy + dz * l.dz); if (cs <= l.co) continue; const t = Math.min(1, (cs - l.co) / Math.max(1e-4, l.ci - l.co)); at *= t * t * (3 - 2 * t); }
+            const f = nl * at; lr += l.r * f; lg += l.g * f; lb += l.b * f; }
+        }
+        LR[i] = ar * lr + er; LG[i] = ag * lg + eg; LB[i] = ab * lb + eb;
+      } else { LR[i] = ar + er; LG[i] = ag + eg; LB[i] = ab + eb; }
+      if (ppl) { AR[i] = ar; AG[i] = ag; AB[i] = ab; }
+    }
+    this._slot0 = nv;
+    const idx = geo.index ? geo.index.array : null, tAll = (idx ? idx.length : nv) / 3, t0 = gs ? gs / 3 : 0, nt = Math.min(tAll, gc === undefined ? Infinity : t0 + gc / 3);
+    const St = this._st1 || (this._st1 = {});
+    Object.assign(St, S); St.ppl = ppl; St.rel = rel; St.side = mat.side; St.nx = 0; St.ny = 1; St.nz = 0; St.lodB = 0;
+    const tex = S.tex; const cam = this.cam, F2 = this.F;
+    const fx = this.cx, fy = this.cy, W = this.W, H = this.H;
+    let tris = 0;
+    for (let t = 0; t < nt; t++) {
+      const a = idx ? idx[t * 3] : t * 3, b = idx ? idx[t * 3 + 1] : t * 3 + 1, c = idx ? idx[t * 3 + 2] : t * 3 + 2;
+      const za = VZ[a], zb = VZ[b], zc = VZ[c];
+      if (za < NEAR && zb < NEAR && zc < NEAR) continue;
+      tris++;
+      const allIn = za >= NEAR && zb >= NEAR && zc >= NEAR;
+      if (allIn) {
+        const ax = SX[a], ay = SY[a], bx = SX[b], by = SY[b], cx2 = SX[c], cy2 = SY[c];
+        if ((ax < 0 && bx < 0 && cx2 < 0) || (ax >= W && bx >= W && cx2 >= W) || (ay < 0 && by < 0 && cy2 < 0) || (ay >= H && by >= H && cy2 >= H)) continue;
+        const ar2 = (bx - ax) * (cy2 - ay) - (cx2 - ax) * (by - ay);
+        if (St.side === 0 ? ar2 >= 0 : (St.side === 1 ? ar2 <= 0 : ar2 === 0)) continue;
+      }
+      if (tex) {   // texel density -> mip base
+        const ux = VU[b] - VU[a], uy = VV[b] - VV[a], vx2 = VU[c] - VU[a], vy2 = VV[c] - VV[a];
+        const ua = Math.abs(ux * vy2 - uy * vx2) * S.rx * S.ry * S.tw * S.th;
+        const e1x = VX[b] - VX[a], e1y = VY[b] - VY[a], e1z = VZ[b] - VZ[a], e2x = VX[c] - VX[a], e2y = VY[c] - VY[a], e2z = VZ[c] - VZ[a];
+        const wa = 0.5 * Math.hypot(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x) * 2;
+        St.lodB = (ua > 1e-9 && wa > 1e-9) ? 0.5 * Math.log2(ua / wa) - Math.log2(F2) : -20;
+      }
+      if (ppl) {
+        const e1x = WX[b] - WX[a], e1y = WY[b] - WY[a], e1z = WZ[b] - WZ[a], e2x = WX[c] - WX[a], e2y = WY[c] - WY[a], e2z = WZ[c] - WZ[a];
+        let nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+        if (nx * (cam.x - WX[a]) + ny * (cam.y - WY[a]) + nz * (cam.z - WZ[a]) < 0) { nx = -nx; ny = -ny; nz = -nz; }
+        St.nx = nx; St.ny = ny; St.nz = nz;
+      }
+      if (allIn) this._raster(a, b, c, St);
+      else this._clipTri(a, b, c, St);
+    }
+    this.stats.tris += tris;
+  }
+
+  _clipTri(a, b, c, St) {
+    const ids = [a, b, c], out = [], s0 = this._slot0; let ns = 0;
+    const lerpV = (p, q) => {   // new vertex on the near plane between p (any) and q
+      const s = s0 + ns++, t = (NEAR - VZ[p]) / (VZ[q] - VZ[p]);
+      VX[s] = VX[p] + (VX[q] - VX[p]) * t; VY[s] = VY[p] + (VY[q] - VY[p]) * t; VZ[s] = NEAR;
+      VU[s] = VU[p] + (VU[q] - VU[p]) * t; VV[s] = VV[p] + (VV[q] - VV[p]) * t;
+      LR[s] = LR[p] + (LR[q] - LR[p]) * t; LG[s] = LG[p] + (LG[q] - LG[p]) * t; LB[s] = LB[p] + (LB[q] - LB[p]) * t;
+      AR[s] = AR[p] + (AR[q] - AR[p]) * t; AG[s] = AG[p] + (AG[q] - AG[p]) * t; AB[s] = AB[p] + (AB[q] - AB[p]) * t;
+      WX[s] = WX[p] + (WX[q] - WX[p]) * t; WY[s] = WY[p] + (WY[q] - WY[p]) * t; WZ[s] = WZ[p] + (WZ[q] - WZ[p]) * t;
+      const iw = 1 / NEAR; IW[s] = iw; SX[s] = VX[s] * iw * this.F + this.cx; SY[s] = this.cy - VY[s] * iw * this.F; return s;
+    };
+    for (let i = 0; i < 3; i++) {
+      const p = ids[i], q = ids[(i + 1) % 3], pin = VZ[p] >= NEAR, qin = VZ[q] >= NEAR;
+      if (pin) out.push(p);
+      if (pin !== qin) out.push(lerpV(p, q));
+    }
+    if (out.length < 3) return;
+    this._raster(out[0], out[1], out[2], St);
+    if (out.length > 3) this._raster(out[0], out[2], out[3], St);
+  }
+
+  _sprite(sp) {
+    const mat = sp.material; if (mat.visible === false) return;
+    const e = sp.matrixWorld.elements, vw = this.view.elements;
+    const vx = vw[0] * e[12] + vw[4] * e[13] + vw[8] * e[14] + vw[12], vy = vw[1] * e[12] + vw[5] * e[13] + vw[9] * e[14] + vw[13], zf = -(vw[2] * e[12] + vw[6] * e[13] + vw[10] * e[14] + vw[14]);
+    if (zf < NEAR) return;
+    const sw = Math.hypot(e[0], e[1], e[2]), sh = Math.hypot(e[4], e[5], e[6]);
+    const hw = 0.5 * sw * this.F / zf, hh = 0.5 * sh * this.F / zf, sx = vx / zf * this.F + this.cx, sy = this.cy - vy / zf * this.F;
+    const W = this.W, H = this.H, x0 = Math.max(0, Math.floor(sx - hw)), x1 = Math.min(W - 1, Math.ceil(sx + hw)), y0 = Math.max(0, Math.floor(sy - hh)), y1 = Math.min(H - 1, Math.ceil(sy + hh));
+    if (x1 < x0 || y1 < y0) return;
+    const S = this._state(mat), lv = S.tex, col = this.col, dep = this.dep, iw = 1 / zf, op = mat.opacity;
+    const add = mat.blending === 2; let fk = 1; if (this.fogOn && mat.fog) fk = this.fogT[Math.min(511, zf * this.fogScale | 0)];
+    const fc = this.fogCol; const L0 = lv ? lv[Math.max(0, Math.min(lv.length - 1, Math.round(Math.log2(Math.max(1, S.tw / Math.max(1, hw * 2))))))] : null;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const idx = y * W + x; if (S.dt && !(iw > dep[idx])) continue;
+      const u = (x + 0.5 - (sx - hw)) / (2 * hw), v = 1 - (y + 0.5 - (sy - hh)) / (2 * hh);
+      let r = mat.color.r, g = mat.color.g, b = mat.color.b, a = op;
+      if (L0) { const tx = Math.min(L0.w - 1, Math.max(0, u * L0.w | 0)), ty = Math.min(L0.h - 1, Math.max(0, (1 - v) * L0.h | 0)), o = (ty * L0.w + tx) * 4; r *= L0.d[o] / 255; g *= L0.d[o + 1] / 255; b *= L0.d[o + 2] / 255; a *= L0.d[o + 3] / 255; }
+      if (a <= 0.004) continue;
+      if (fk < 1) { r = r * fk + fc[0] * (1 - fk); g = g * fk + fc[1] * (1 - fk); b = b * fk + fc[2] * (1 - fk); }
+      const d = col[idx], dr = d & 255, dg = d >> 8 & 255, db = d >> 16 & 255;
+      let R, G, B;
+      if (add) { R = dr + r * a * 255; G = dg + g * a * 255; B = db + b * a * 255; } else { R = dr + (r * 255 - dr) * a; G = dg + (g * 255 - dg) * a; B = db + (b * 255 - db) * a; }
+      col[idx] = 0xff000000 | ((B > 255 ? 255 : B) << 16) | ((G > 255 ? 255 : G) << 8) | (R > 255 ? 255 : R);
+      if (S.dw && a > 0.5) dep[idx] = iw;
+    }
+  }
+
+  /* triangle rasterizer: vertices by slot index into the global vertex arrays */
+  _raster(i0, i1, i2, St) {
+    const W = this.W, H = this.H, col = this.col, dep = this.dep;
+    const x0 = SX[i0], y0 = SY[i0], x1 = SX[i1], y1 = SY[i1], x2 = SX[i2], y2 = SY[i2];
+    const det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+    if (det === 0) return;
+    if (St.side === 0 ? det >= 0 : (St.side === 1 ? det <= 0 : false)) return;
+    let ymin = Math.min(y0, y1, y2), ymax = Math.max(y0, y1, y2);
+    let ys = Math.max(0, Math.ceil(ymin - 0.5)), ye = Math.min(H - 1, Math.ceil(ymax - 0.5) - 1);
+    if (ye < ys) return;
+    const id = 1 / det; gDY20 = y2 - y0; gDY10 = y1 - y0; gDX10 = x1 - x0; gDX20 = x2 - x0; gID = id;
+    const iw0 = IW[i0], iw1 = IW[i1], iw2 = IW[i2];
+    // attributes (perspective-correct ones are premultiplied by 1/w)
+    const giw = GX(iw0, iw1, iw2), giy = GY(iw0, iw1, iw2);
+    const tex = St.tex;
+    let u0 = 0, guX = 0, guY = 0, v0 = 0, gvX = 0, gvY = 0;
+    if (tex) { u0 = VU[i0] * iw0; const u1 = VU[i1] * iw1, u2 = VU[i2] * iw2; guX = GX(u0, u1, u2); guY = GY(u0, u1, u2); v0 = VV[i0] * iw0; const v1 = VV[i1] * iw1, v2 = VV[i2] * iw2; gvX = GX(v0, v1, v2); gvY = GY(v0, v1, v2); }
+    const r0 = LR[i0], g0 = LG[i0], b0 = LB[i0], grX = GX(r0, LR[i1], LR[i2]), grY = GY(r0, LR[i1], LR[i2]), ggX = GX(g0, LG[i1], LG[i2]), ggY = GY(g0, LG[i1], LG[i2]), gbX = GX(b0, LB[i1], LB[i2]), gbY = GY(b0, LB[i1], LB[i2]);
+    const ppl = St.ppl;
+    let ar0 = 0, gaX = 0, gaY = 0, ag0 = 0, gcX = 0, gcY = 0, ab0 = 0, gdX = 0, gdY = 0, wx0 = 0, gwxX = 0, gwxY = 0, wy0 = 0, gwyX = 0, gwyY = 0, wz0 = 0, gwzX = 0, gwzY = 0;
+    if (ppl) {
+      ar0 = AR[i0]; gaX = GX(ar0, AR[i1], AR[i2]); gaY = GY(ar0, AR[i1], AR[i2]); ag0 = AG[i0]; gcX = GX(ag0, AG[i1], AG[i2]); gcY = GY(ag0, AG[i1], AG[i2]); ab0 = AB[i0]; gdX = GX(ab0, AB[i1], AB[i2]); gdY = GY(ab0, AB[i1], AB[i2]);
+      wx0 = WX[i0] * iw0; gwxX = GX(wx0, WX[i1] * iw1, WX[i2] * iw2); gwxY = GY(wx0, WX[i1] * iw1, WX[i2] * iw2);
+      wy0 = WY[i0] * iw0; gwyX = GX(wy0, WY[i1] * iw1, WY[i2] * iw2); gwyY = GY(wy0, WY[i1] * iw1, WY[i2] * iw2);
+      wz0 = WZ[i0] * iw0; gwzX = GX(wz0, WZ[i1] * iw1, WZ[i2] * iw2); gwzY = GY(wz0, WZ[i1] * iw1, WZ[i2] * iw2);
+    }
+    const blend = St.blend, opac = St.opacity, fogOn = St.fog, dw = St.dw, dt = St.dt, bias = St.bias, texA = St.texAlpha;
+    const fogT = this.fogT, fs = this.fogScale, fc = this.fogCol, fcr = fc[0], fcg = fc[1], fcb = fc[2];
+    const rel = St.rel, nrel = ppl ? rel.length : 0, nx = St.nx, ny = St.ny, nz = St.nz, lodB = St.lodB;
+    const rx = St.rx, ry = St.ry, wS = St.wrapS, wT = St.wrapT, maxL = St.maxL;
+    // vertex order by y
+    let xa = x0, ya = y0, xb = x1, yb = y1, xc = x2, yc = y2, tx_, ty_;
+    if (ya > yb) { tx_ = xa; ty_ = ya; xa = xb; ya = yb; xb = tx_; yb = ty_; } if (yb > yc) { tx_ = xb; ty_ = yb; xb = xc; yb = yc; xc = tx_; yc = ty_; } if (ya > yb) { tx_ = xa; ty_ = ya; xa = xb; ya = yb; xb = tx_; yb = ty_; }
+    for (let y = ys; y <= ye; y++) {
+      const py = y + 0.5;
+      const xl1 = yc !== ya ? xa + (xc - xa) * (py - ya) / (yc - ya) : xa;
+      let xl2; if (py < yb) xl2 = yb !== ya ? xa + (xb - xa) * (py - ya) / (yb - ya) : xb; else xl2 = yc !== yb ? xb + (xc - xb) * (py - yb) / (yc - yb) : xb;
+      let xl = xl1 < xl2 ? xl1 : xl2, xr = xl1 < xl2 ? xl2 : xl1;
+      let xs = Math.ceil(xl - 0.5), xe = Math.ceil(xr - 0.5) - 1; if (xs < 0) xs = 0; if (xe > W - 1) xe = W - 1; if (xe < xs) continue;
+      const dx = xs + 0.5 - x0, dy = py - y0;
+      let iw = iw0 + giw * dx + giy * dy;
+      let uw = tex ? u0 + guX * dx + guY * dy : 0, vw = tex ? v0 + gvX * dx + gvY * dy : 0;
+      let lr = r0 + grX * dx + grY * dy, lg = g0 + ggX * dx + ggY * dy, lb = b0 + gbX * dx + gbY * dy;
+      let pr = 0, pg = 0, pb = 0, wxw = 0, wyw = 0, wzw = 0;
+      if (ppl) { pr = ar0 + gaX * dx + gaY * dy; pg = ag0 + gcX * dx + gcY * dy; pb = ab0 + gdX * dx + gdY * dy; wxw = wx0 + gwxX * dx + gwxY * dy; wyw = wy0 + gwyX * dx + gwyY * dy; wzw = wz0 + gwzX * dx + gwzY * dy; }
+      let idx = y * W + xs;
+      for (let x = xs; x <= xe; x++, idx++) {
+        if (dt ? (iw * bias > dep[idx]) : true) {
+          const w = 1 / iw;
+          let r = lr, g = lg, b = lb, a = opac;
+          if (tex) {
+            F32[0] = w; const lg2 = (I32[0] >> 23) - 127 + ((I32[0] & 8388607) * 1.1920929e-7); let lv = lodB + lg2; lv = lv < 0 ? 0 : (lv > maxL ? maxL : (lv + 0.15) | 0);
+            const L = tex[lv], tw = L.w, th = L.h; let fu = uw * w * rx, fv = vw * w * ry;
+            if (wS) fu -= Math.floor(fu); else fu = fu < 0 ? 0 : (fu > 1 ? 1 : fu);
+            if (wT) fv -= Math.floor(fv); else fv = fv < 0 ? 0 : (fv > 1 ? 1 : fv);
+            let tx = (fu * tw) | 0, ty = th - 1 - ((fv * th) | 0); if (tx >= tw) tx = tw - 1; if (ty < 0) ty = 0;
+            const o = (ty * tw + tx) * 4, d = L.d;
+            r *= d[o] * 0.00392157; g *= d[o + 1] * 0.00392157; b *= d[o + 2] * 0.00392157;
+            if (texA) a *= d[o + 3] * 0.00392157;
+            if (ppl) { pr *= d[o] * 0.00392157; pg *= d[o + 1] * 0.00392157; pb *= d[o + 2] * 0.00392157; }
+          }
+          if (nrel) {
+            const wx = wxw * w, wy = wyw * w, wz = wzw * w; let Lr = 0, Lg = 0, Lb = 0;
+            for (let k = 0; k < nrel; k++) {
+              const l = rel[k]; let ddx = l.x - wx, ddy = l.y - wy, ddz = l.z - wz; const d2 = ddx * ddx + ddy * ddy + ddz * ddz; if (d2 >= l.dist * l.dist) continue;
+              const nd = nx * ddx + ny * ddy + nz * ddz; if (nd <= 0) continue;
+              const dd = Math.sqrt(d2) || 1e-6; const nl = nd / dd; ddx /= dd; ddy /= dd; ddz /= dd;
+              let at = l.decay ? l.lut[(1 - dd / l.dist) * 128 | 0] : 1;
+              if (l.spot) { const cs = -(ddx * l.dx + ddy * l.dy + ddz * l.dz); if (cs <= l.co) continue; const t = (cs - l.co) / (l.ci - l.co + 1e-6); at *= t >= 1 ? 1 : t * t * (3 - 2 * t); }
+              const f = nl * at; Lr += l.r * f; Lg += l.g * f; Lb += l.b * f;
+            }
+            r += pr * Lr; g += pg * Lg; b += pb * Lb;
+          }
+          if (a > 0.004) {
+            if (fogOn) { const fi = (w * fs) | 0, f = fi > 510 ? 0 : fogT[fi]; r = r * f + fcr * (1 - f); g = g * f + fcg * (1 - f); b = b * f + fcb * (1 - f); }
+            if (blend === 0) {
+              const R = r * 255, G = g * 255, B = b * 255;
+              col[idx] = 0xff000000 | ((B > 255 ? 255 : B) << 16) | ((G > 255 ? 255 : G) << 8) | (R > 255 ? 255 : R);
+              if (dw) dep[idx] = iw;
+            } else {
+              const d = col[idx], dr = d & 255, dg = (d >> 8) & 255, db = (d >> 16) & 255; let R, G, B;
+              if (blend === 2) { R = dr + r * a * 255; G = dg + g * a * 255; B = db + b * a * 255; } else { R = dr + (r * 255 - dr) * a; G = dg + (g * 255 - dg) * a; B = db + (b * 255 - db) * a; }
+              col[idx] = 0xff000000 | ((B > 255 ? 255 : B < 0 ? 0 : B) << 16) | ((G > 255 ? 255 : G < 0 ? 0 : G) << 8) | (R > 255 ? 255 : R < 0 ? 0 : R);
+              if (dw && a > 0.5) dep[idx] = iw;
+            }
+          }
+        }
+        iw += giw; lr += grX; lg += ggX; lb += gbX;
+        if (tex) { uw += guX; vw += gvX; }
+        if (ppl) { pr += gaX; pg += gcX; pb += gdX; wxw += gwxX; wyw += gwyX; wzw += gwzX; }
+      }
+    }
+  }
+}
+T.WebGLRenderer = SoftRenderer; T.SoftRenderer = SoftRenderer;
+T.REVISION = 'soft';
+root.THREE = T;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
 <script>
 (() => {
 'use strict';
@@ -234,7 +1158,7 @@ const CONFIG = {
   if (st > 0) CONFIG.STATION_AHEAD = st;
   const ro = parseFloat(qs.get('runout')); if (ro > 0) CONFIG.RUNOUT_AFTER = ro;
 }
-const TOUCH_UI = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+const TOUCH_UI = false;   // NoGL build: DualSense only
 const COARSE = window.matchMedia && matchMedia('(pointer: coarse)').matches;
 if (TOUCH_UI) document.body.classList.add('touch');
 
@@ -373,11 +1297,11 @@ let renderer;
 try { renderer = new THREE.WebGLRenderer({ canvas, antialias: !TOUCH_UI, powerPreference: 'high-performance' }); }
 catch (e) {
   const er = document.getElementById('err');
-  if (window.reportErr) window.reportErr('WebGL is not available in this browser: ' + (e && e.message ? e.message : e));
-  if (er) { er.style.display = 'block'; er.textContent = 'WebGL is not available in this browser: ' + (e && e.message ? e.message : e); }
+  if (window.reportErr) window.reportErr('Software renderer failed: ' + (e && e.message ? e.message : e));
+  if (er) { er.style.display = 'block'; er.textContent = 'Software renderer failed: ' + (e && e.message ? e.message : e); }
   return;
 }
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, TOUCH_UI ? 1.25 : 1.5));
+renderer.budget = 150000; renderer.setPixelRatio(1);
 
 const scene = new THREE.Scene();
 const NIGHT = 0x05070d;
@@ -1598,6 +2522,7 @@ bindButton('bCam', () => toggleView());
 bindButton('bBrake', () => { input.brake = true; $('bBrake').classList.add('on'); }, () => { input.brake = false; $('bBrake').classList.remove('on'); });
 
 const gp = { x: 0, y: 0, sprint: false, brake: false, throttle: 0, connected: false, prev: [] };
+const QLV = [90000, 150000, 230000, 340000], QNAME = ['Low', 'Medium', 'High', 'Ultra']; let qLv = 1;
 const PAD = { DEAD: 0.16, LOOK_SPEED: 2.7 };
 function padAxis(v) { v = v || 0; const a = Math.abs(v); if (a < PAD.DEAD) return 0; return Math.sign(v) * (a - PAD.DEAD) / (1 - PAD.DEAD); }
 function getPad() {
@@ -1612,7 +2537,7 @@ function pollGamepad(dt) {
   if (!p) { gp.x = gp.y = gp.throttle = 0; gp.sprint = gp.brake = false; gp.prev.length = 0; if (gp.connected) { gp.connected = false; } return; }
   if (!gp.connected) { gp.connected = true; padHint(); }
   const B = i => padBtn(p, i) > 0.5, edge = i => { const now = B(i), was = !!gp.prev[i]; gp.prev[i] = now; return now && !was; };
-  const e = { cross: edge(0), circle: edge(1), square: edge(2), tri: edge(3), options: edge(9) };
+  const e = { cross: edge(0), circle: edge(1), square: edge(2), tri: edge(3), options: edge(9), l1: edge(4), r1: edge(5) };
   edge(6); edge(7); edge(10);
   const rx = padAxis(p.axes[2]), ry = padAxis(p.axes[3]);
   if (!running) {
@@ -1620,6 +2545,7 @@ function pollGamepad(dt) {
     if (e.cross || e.options) startGame();
     return;
   }
+  if (e.l1 || e.r1) { qLv = clamp(qLv + (e.r1 ? 1 : -1), 0, 3); renderer.budget = QLV[qLv]; prNow = 1.0; renderer.setPixelRatio(1); renderer.setSize(window.innerWidth, window.innerHeight); say('Quality: ' + QNAME[qLv]); }
   if (e.options) { pauseGame(); return; }
   gp.x = padAxis(p.axes[0]); gp.y = -padAxis(p.axes[1]);
   const r2 = padBtn(p, 7), l2 = padBtn(p, 6);
@@ -1639,7 +2565,7 @@ function padHint() {
   h.textContent = 'DualSense connected — press \u2715 to play';
   let l = document.getElementById('padlegend');
   if (!l) { l = document.createElement('div'); l.id = 'padlegend'; l.style.cssText = 'margin-top:10px;max-width:520px;color:#8a93a3;font-size:12px;line-height:1.7;text-align:center;'; h.parentNode.insertBefore(l, h.nextSibling); }
-  l.innerHTML = 'Left stick: move / steer &nbsp;·&nbsp; Right stick: look &nbsp;·&nbsp; R2 / L2: gas / brake &nbsp;·&nbsp; L3: run<br>\u2715 Action (enter / exit car, pay, doors, radio) &nbsp;·&nbsp; \u25A1 Lights &nbsp;·&nbsp; \u25B3 View &nbsp;·&nbsp; \u25CB Handbrake &nbsp;·&nbsp; Options: pause';
+  l.innerHTML = 'Left stick: move / steer &nbsp;·&nbsp; Right stick: look &nbsp;·&nbsp; R2 / L2: gas / brake &nbsp;·&nbsp; L3: run<br>\u2715 Action (enter / exit car, pay, doors, radio) &nbsp;·&nbsp; \u25A1 Lights &nbsp;·&nbsp; \u25B3 View &nbsp;·&nbsp; \u25CB Handbrake &nbsp;·&nbsp; Options: pause<br>L1 / R1: lower / raise quality (sharper picture, slower)';
 }
 
 function readInput() {
@@ -2558,15 +3484,24 @@ function updateHUD() {
 
 let lastT = performance.now();
 
-const PR_MAX = Math.min(window.devicePixelRatio || 1, TOUCH_UI ? 1.25 : 1.5);
-const PR_MIN = Math.min(1, PR_MAX);
-let prNow = PR_MAX, ftAvg = 16.7, prCool = 3;
+const PR_MAX = 1.0;
+const PR_MIN = 0.55;
+let prNow = 1.0, ftAvg = 16.7, prCool = 3;
+let fpsAcc = 0, fpsN = 0, fpsEl = null;
+function fpsUpdate(ms) {
+  renderer.nearTree = mode === 'car' ? 38 : 24;
+  fpsAcc += ms; fpsN++;
+  if (fpsAcc < 500) return;
+  if (!fpsEl) { fpsEl = document.createElement('div'); fpsEl.style.cssText = 'position:fixed;left:8px;top:6px;z-index:5;color:#9fd8ff;font:12px monospace;opacity:.7;pointer-events:none;'; document.body.appendChild(fpsEl); }
+  fpsEl.textContent = 'FPS ' + Math.round(1000 * fpsN / fpsAcc) + ' · ' + QNAME[qLv] + ' · ' + renderer.W + 'x' + renderer.H;
+  fpsAcc = 0; fpsN = 0;
+}
 function adaptRes(frameMs, dt) {
   ftAvg += (Math.min(frameMs, 100) - ftAvg) * 0.05; prCool -= dt;
   if (prCool > 0) return;
   let next = prNow;
-  if (ftAvg > 24 && prNow > PR_MIN) next = Math.max(PR_MIN, prNow - 0.1);
-  else if (ftAvg < 14 && prNow < PR_MAX) next = Math.min(PR_MAX, prNow + 0.1);
+  if (ftAvg > 38 && prNow > PR_MIN) next = Math.max(PR_MIN, prNow - 0.08);
+  else if (ftAvg < 24 && prNow < PR_MAX) next = Math.min(PR_MAX, prNow + 0.1);
   if (next !== prNow) { prNow = next; renderer.setPixelRatio(prNow); renderer.setSize(window.innerWidth, window.innerHeight); prCool = 4; }
 }
 function frame(now) {
@@ -2575,7 +3510,7 @@ function frame(now) {
 }
 function frameBody(now) {
   const frameMs = now - lastT;
-  const dt = Math.min(0.05, frameMs / 1000);
+  const dt = Math.min(0.12, frameMs / 1000); fpsUpdate(frameMs);
   lastT = now;
   if (running) adaptRes(frameMs, dt);
   try { if (!gp.broken) pollGamepad(dt); } catch (e) { gp.broken = true; gp.x = gp.y = gp.throttle = 0; gp.sprint = gp.brake = false; if (window.reportErr && !/permissions policy|SecurityError|NotAllowed/i.test(String(e && (e.message || e)))) window.reportErr('gamepad disabled: ' + (e && e.stack ? String(e.stack).split('\n').slice(0, 3).join('\n') : e)); }
