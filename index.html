@@ -120,7 +120,7 @@
   color: #fff; font-size: clamp(13px, 2.2vw, 18px); padding: 6px 14px; border-radius: 8px; background: rgba(0,0,0,.55); text-shadow: 0 1px 2px #000; white-space: nowrap; }
 
 /* cutscene */
-body.cinematic #speed, body.cinematic #fuel, body.cinematic #radio, body.cinematic #money, body.cinematic #crosshair, body.cinematic #touchui, body.cinematic #vignette, body.cinematic #hint { display: none !important; }
+body.cinematic #speed, body.cinematic #fuel, body.cinematic #radio, body.cinematic #money, body.cinematic #crosshair, body.cinematic #bLight, body.cinematic #bCam, body.cinematic #bBrake, body.cinematic #vignette, body.cinematic #hint { display: none !important; }
 #slit { position: fixed; inset: 0; display: none; z-index: 7; pointer-events: none; }
 #slit i { position: absolute; top: 0; bottom: 0; background: #000; }
 #slit i:first-child { left: 0; width: 46.5%; } #slit i:last-child { right: 0; width: 46.5%; }
@@ -163,7 +163,7 @@ window.reportErr = function (m) { try { console.error(m); var e = document.getEl
   <h2>THE ROAD</h2>
   <button id="play">PLAY</button>
   <div id="err"></div>
-  <div class="ver">v0.11.1 — motel night cutscene, ?motel shortcut</div>
+  <div class="ver">v0.11.2 — motel night cutscene, touch buttons fix</div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -2505,12 +2505,7 @@ function updateHUD() {
     if (fl !== hudLast.fuel) { hudLast.fuel = fl; fuelTxt.textContent = fl; }
     if (low !== hudLast.low) { hudLast.low = low; fuelEl.classList.toggle('low', low); }
   }
-  let act = canBoard() ? 'Get in' : 'Action';
-  if (Cut.st === 'KNOCK' || Cut.st === 'KICK' || Cut.st === 'ENTER') {
-    const R = Cut.R;
-    const lx = player.pos.x - R.x, lz = player.pos.z - R.z;
-    if (!Cut.hidden && Math.hypot(lx + 2.75, lz - 0.9) < 1.8) act = 'Hide';
-  }
+  const act = canBoard() ? 'Get in' : 'Action';
   if (act !== hudLast.act) { hudLast.act = act; $('bAct').textContent = act; }
   const m = '$' + eco.money;
   if (m !== hudLast.money) { hudLast.money = m; moneyEl.textContent = m; }
@@ -2570,9 +2565,8 @@ Cut.action = function () {
   const R = Cut.R, lx = player.pos.x - R.x, lz = player.pos.z - R.z;
   if (Cut.st === 'KNOCK' || Cut.st === 'KICK' || Cut.st === 'ENTER') {
     if (Cut.hidden) return true;
-    // The wardrobe is the safe hiding place: check it before the door.
-    if (Math.hypot(lx + 2.75, lz - 0.9) < 1.8) { Cut.hide(); return true; }
     if ((Cut.st === 'KNOCK' || Cut.st === 'KICK') && Math.hypot(lx + 1.9, lz - 3.0) < 1.6) { Cut.die('door'); return true; }
+    if (Math.hypot(lx + 2.75, lz - 0.9) < 1.35) { Cut.hide(); return true; }
   }
   return true;
 };
