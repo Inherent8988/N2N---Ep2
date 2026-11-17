@@ -31,17 +31,34 @@
   /* ---------- MENU ---------- */
   #menu, #menu * { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   button, .tbtn { font-family: inherit; }
-  #menu { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    background: radial-gradient(ellipse at center, rgba(10,14,24,.88), rgba(0,0,0,.97)); text-align: center; padding: 20px; }
-  #menu .tag { font-size: 12px; letter-spacing: 6px; color: #8a8f9c; margin-bottom: 10px; }
-  #menu h1 { margin: 0; font-size: clamp(34px, 9vw, 72px); letter-spacing: 6px; font-weight: 800; color: #f1f1f4; text-shadow: 0 0 24px rgba(180,20,20,.55); }
-  #menu h2 { margin: 6px 0 28px; font-size: clamp(16px, 4vw, 26px); letter-spacing: 10px; font-weight: 400; color: #b32020; }
-  #play { font-size: 18px; letter-spacing: 4px; padding: 14px 44px; border: 1px solid #b32020; background: rgba(179,32,32,.15);
-    color: #fff; border-radius: 4px; cursor: pointer; }
-  #play:active { background: rgba(179,32,32,.45); }
-  #menu .help { margin-top: 28px; font-size: 13px; line-height: 1.8; color: #9aa0ad; max-width: 520px; }
-  #menu .help b { color: #d6d8de; font-weight: 600; }
-  #menu .ver { margin-top: 18px; font-size: 11px; color: #555a66; }
+  #menu { position: fixed; inset: 0; z-index: 10; background: linear-gradient(90deg, rgba(0,0,0,.62) 0%, rgba(0,0,0,.28) 45%, rgba(0,0,0,.18) 100%); }
+  #menu.paused { background: rgba(0,0,0,.62); }
+  #mleft { position: absolute; left: 6vw; top: 14vh; text-align: left; }
+  #menu h1 { margin: 0; font-size: clamp(30px, 6.4vw, 66px); letter-spacing: 5px; font-weight: 800; color: #4fb4ff; text-shadow: 0 0 22px rgba(40,140,230,.55), -2px 0 rgba(255,40,40,.35), 2px 0 rgba(40,255,255,.3); }
+  #menu h2 { margin: 6px 0 30px 3px; font-size: clamp(13px, 2vw, 19px); letter-spacing: 6px; font-weight: 400; color: #4fb4ff; text-shadow: 0 0 12px rgba(40,140,230,.5); }
+  #menu button { display: block; font-size: clamp(16px, 2.2vw, 22px); letter-spacing: 4px; padding: 10px 6px; margin: 0 0 6px; border: 0; background: none; color: #fff; cursor: pointer; text-align: left; text-shadow: -1px 0 rgba(255,40,40,.35), 1px 0 rgba(40,255,255,.3); }
+  #menu button:hover, #menu button:focus { outline: none; text-decoration: underline; text-underline-offset: 8px; }
+  #menu button:active { opacity: .6; }
+  #eps { position: absolute; right: 8vw; top: 30vh; display: none; flex-direction: column; text-align: left; }
+  #menu.eps-open #eps { display: flex; } #menu.eps-open #play { display: none; } #menu.paused #eps { display: none; }
+  #eps .eh { color: #fff; font-size: clamp(13px, 1.8vw, 18px); letter-spacing: 8px; margin: 0 0 18px 6px; opacity: .85; text-shadow: -1px 0 rgba(255,40,40,.35), 1px 0 rgba(40,255,255,.3); }
+  #menu .ver { position: absolute; left: 14px; bottom: 10px; font-size: 11px; color: rgba(255,255,255,.35); }
+  #err { position: absolute; left: 6vw; bottom: 34px; color: #fff; font-size: 12px; }
+  /* VHS look (menu only) */
+  #vhs { position: fixed; inset: 0; z-index: 11; pointer-events: none; overflow: hidden; display: none; font-family: "Courier New", monospace; }
+  #vhs.on { display: block; animation: vflick 3.3s steps(1) infinite; }
+  #vnoise { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .085; image-rendering: pixelated; }
+  #vhs .scan { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(0,0,0,.2) 0, rgba(0,0,0,.2) 1px, transparent 1px, transparent 3px); }
+  #vhs .vig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%); }
+  #vhs .bar { position: absolute; left: 0; right: 0; height: 9%; top: -12%; background: linear-gradient(180deg, transparent, rgba(255,255,255,.07) 30%, rgba(255,255,255,.2) 55%, rgba(255,255,255,.06) 80%, transparent); animation: vbar 7s linear infinite; }
+  #vhs .bar2 { position: absolute; left: 0; right: 0; height: 2.2%; top: -5%; background: rgba(255,255,255,.16); animation: vbar2 11s linear infinite 3s; }
+  #vhs .rec { position: absolute; right: 4vw; top: 4vh; color: #fff; font-size: clamp(14px, 2vw, 22px); letter-spacing: 3px; text-shadow: -1px 0 rgba(255,40,40,.6), 1px 0 rgba(40,255,255,.5); }
+  #vhs .rec i { display: inline-block; width: .6em; height: .6em; border-radius: 50%; background: #e22; margin-right: .5em; animation: vblink 1.2s steps(1) infinite; }
+  #vhs .osd { position: absolute; left: 4vw; bottom: 5vh; color: #fff; font-size: clamp(14px, 2vw, 22px); letter-spacing: 4px; text-shadow: -1px 0 rgba(255,40,40,.6), 1px 0 rgba(40,255,255,.5); }
+  @keyframes vbar { 0% { top: -12%; } 100% { top: 108%; } }
+  @keyframes vbar2 { 0% { top: -5%; } 18% { top: 105%; } 100% { top: 105%; } }
+  @keyframes vblink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
+  @keyframes vflick { 0% { opacity: 1; } 41% { opacity: .86; } 43% { opacity: 1; } 78% { opacity: .92; } 80% { opacity: 1; } }
   #menu .kb { display: block; } #menu .tc { display: none; }
   .touch #menu .kb { display: none; } .touch #menu .tc { display: block; }
   .touch #hint .kb { display: none; } #hint .tc { display: none; } .touch #hint .tc { display: inline; }
@@ -158,13 +175,21 @@ window.reportErr = function (m) { try { console.error(m); var e = document.getEl
 </div>
 
 <div id="menu">
-  <div class="tag">F2F · EPISODE 2</div>
-  <h1>NIGHT TO NEVER</h1>
-  <h2>THE ROAD</h2>
-  <button id="play">PLAY</button>
+  <div id="mleft">
+    <h1>NIGHT TO NEVER</h1>
+    <h2>The Road</h2>
+    <button id="play">Play</button>
+  </div>
+  <div id="eps">
+    <div class="eh">Episodes</div>
+    <button id="epHome">Staying Home</button>
+    <button id="epRoad">The Road</button>
+  </div>
   <div id="err"></div>
-  <div class="ver">v0.11.3 — motel night cutscene, 2s credits</div>
+  <div class="ver">v0.12.0 — VHS menu</div>
 </div>
+<div id="vhs"><canvas id="vnoise"></canvas><div class="scan"></div><div class="bar"></div><div class="bar2"></div><div class="vig"></div>
+  <div class="rec"><i></i>REC <span id="vtime">00:00:00</span></div><div class="osd">&#9654; PLAY</div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>window.THREE || document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"><\/script>');</script>
@@ -2441,6 +2466,8 @@ const BCXW = () => (-14 + ROOMS_END) / 2;
 function teleportToMotel() {
   const uz = roadDirZ(), mz = Math.round((camera.position.z + uz * 500) / 10) * 10;
   buildMotel(mz);
+  if (MOTEL.z !== mz) { MOTEL.z = mz; MOTEL.group.position.set(MOTEL.x, 0, mz); }
+  MOTEL.group.visible = true;
   removeTreesNear(MOTEL.x + 3, mz + BCXW(), 32);
   const sp = motelW(-8, 3.6);
   player.pos.set(sp.x, 0, sp.z); player.vel.set(0, 0, 0); player.yaw = -Math.PI / 2; pitch = -0.04;
@@ -2753,6 +2780,7 @@ function frameBody(now) {
   const dt = Math.min(0.05, frameMs / 1000);
   lastT = now;
   if (running) adaptRes(frameMs, dt);
+  if (Menu.bg && !running) menuCam(dt);
   if (running) {
     readInput();
     flushLook();
@@ -2776,8 +2804,46 @@ function frameBody(now) {
   renderer.render(scene, camera);
 }
 
+const Menu = { bg: false, t: 0, nT: 0, vhs: $('vhs'), nc: $('vnoise'), pos: null };
+function menuInit() {
+  let skip = false;
+  try { skip = !!sessionStorage.getItem('n2n_restart'); } catch (e) {}
+  if (skip || /[?&]motel\b/.test(location.search)) return;
+  const uz = roadDirZ(), mz = Math.round((camera.position.z + uz * 500) / 10) * 10;
+  buildMotel(mz);
+  removeTreesNear(MOTEL.x + 3, mz + BCXW(), 32);
+  const p = motelW(-11, 15);
+  Menu.pos = { x: p.x, z: p.z };
+  Menu.bg = true;
+  Menu.nc.width = 160; Menu.nc.height = 90;
+  Menu.vhs.classList.add('on'); document.body.classList.add('cinematic');
+  updateWorld(p.x, p.z, true);
+  removeTreesNear(MOTEL.x + 3, mz + BCXW(), 32);
+  menuCam(0);
+}
+function menuCam(dt) {
+  Menu.t += dt;
+  const t = Menu.t, p = Menu.pos;
+  const hx = Math.sin(t * 0.7) * 0.18 + Math.sin(t * 1.9) * 0.05, hy = Math.sin(t * 1.1 + 1) * 0.05 + Math.sin(t * 7.3) * 0.006;
+  camera.position.set(p.x + Math.sin(t * 0.37) * 0.35, 1.55 + hy, p.z + hx);
+  camera.rotation.set(0.09 + Math.sin(t * 0.9) * 0.012, -Math.PI / 2 - 0.12 + Math.sin(t * 0.5) * 0.035 + Math.sin(t * 2.3) * 0.006, Math.sin(t * 0.6) * 0.01);
+  sky.position.copy(camera.position);
+  Menu.nT -= dt;
+  if (Menu.nT <= 0) {
+    Menu.nT = 1 / 12;
+    const c = Menu.nc, g = c.getContext('2d'), im = g.createImageData(c.width, c.height), d = im.data;
+    for (let i = 0; i < d.length; i += 4) { const v = Math.random() * 255 | 0; d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255; }
+    g.putImageData(im, 0, 0);
+    const ti = $('vtime'); if (ti) { const sec = Math.floor(t) + 1337; ti.textContent = '00:' + String(Math.floor(sec / 60) % 60).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0'); }
+  }
+}
 function startGame() {
   SFX.init();
+  if (Menu.bg) {
+    Menu.bg = false; document.body.classList.remove('cinematic'); Menu.vhs.classList.remove('on'); $('menu').classList.remove('eps-open');
+    MOTEL.group.visible = false;
+    updateCamera(0); updateWorld(camera.position.x, camera.position.z, true);
+  }
   running = true;
   if (Cut.audio && Cut.st === 'ROAD') { try { Cut.audio.play(); } catch (e) {} }
   Radio.update();
@@ -2793,10 +2859,13 @@ function pauseGame() {
   for (const k in keys) keys[k] = false;
   joy.id = null; joy.x = joy.y = 0; lookTouch.id = null;
   $('joyBase').style.display = $('joyKnob').style.display = 'none';
-  $('play').textContent = 'CONTINUE';
-  $('menu').style.display = 'flex';
+  $('play').textContent = 'Continue';
+  $('menu').classList.add('paused');
+  $('menu').style.display = 'block';
 }
-$('play').addEventListener('click', startGame);
+$('play').addEventListener('click', () => { if (Menu.bg) $('menu').classList.add('eps-open'); else { $('menu').classList.remove('paused'); startGame(); } });
+$('epRoad').addEventListener('click', startGame);
+$('epHome').addEventListener('click', () => { location.href = 'https://inherent.itch.io/night-to-never-staying-home'; });
 document.addEventListener('visibilitychange', () => { if (document.hidden && running) pauseGame(); });
 
 ['keydown', 'pointerdown', 'touchstart'].forEach(ev => window.addEventListener(ev, () => SFX.init(), { passive: true }));
@@ -2808,6 +2877,7 @@ if (/[?&]motel\b/.test(location.search)) {
 }
 
 updateCamera(0);
+menuInit();
 requestAnimationFrame(frame);
 
 window.GAME = { Cut, ROOMST, MOTEL, enterRoom, teleportToMotel, giveItem, hasItem, camera, CONFIG, scene, camera, car, player, breakCar, startRunout, placeStation, eco, ST, FUEL_ZONE, stationGroup, LOG, pushAnim, evt, NPC, treeChunks, SPECIES, figures, POOL, Radio, carParts, set pitch(v) { pitch = v; }, get radioLook() { return radioLook; }, Dialog, MOTEL, ride, pushOutMotel, player, giveItem, hasItem, teleportToMotel, ROOMST, pushOutRoom, enterRoom, exitRoom, motelDoorAction, say,
