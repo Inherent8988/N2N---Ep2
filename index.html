@@ -163,7 +163,7 @@ window.reportErr = function (m) { try { console.error(m); var e = document.getEl
   <h2>THE ROAD</h2>
   <button id="play">PLAY</button>
   <div id="err"></div>
-  <div class="ver">v0.11.2 — motel night cutscene, touch buttons fix</div>
+  <div class="ver">v0.11.3 — motel night cutscene, 2s credits</div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -2522,7 +2522,7 @@ const CREDITS = [
   { lines: [['h', 'Textures made in Canvas'], ['n', 'By Claude and Inherent8988']] },
   { lines: [['h', 'A game by'], ['n', 'InherentStudios']] }
 ];
-const CUT_T = { walk: 3.4, lie: 3.2, sleep: CUT_FAST ? 4 : 60, clock: 2.8, wake: 3.4, win: 5.0, knockEnd: 12.0, kick: [0, 1.8, 3.4, 4.7, 5.6], crashAt: 6.4, roadCredits: 9.0, cardLen: 1.0, cardGap: 0.5 };
+const CUT_T = { walk: 3.4, lie: 3.2, sleep: CUT_FAST ? 4 : 60, clock: 2.8, wake: 3.4, win: 5.0, knockEnd: 12.0, kick: [0, 1.8, 3.4, 4.7, 5.6], crashAt: 6.4, roadCredits: 9.0, cardLen: 2.0, cardGap: 0.5 };
 const KNOCKS = [[0.6, 0.8], [1.2, 0.8], [1.8, 0.8], [4.6, 0.95], [5.1, 0.95], [5.6, 0.95], [6.1, 0.95], [9.0, 1.15], [9.4, 1.15], [9.8, 1.15], [10.2, 1.15], [10.6, 1.15]];
 
 const SEARCH = [[-1.9, 2.3, 1.5, [-1.9, -3]], [-1.2, 0.8, 1.0, [0.5, -1.5]], [0.1, -0.9, 1.7, [1.2, -2.2]], [-0.9, -1.9, 1.0, [-2.5, -2.7]], [-1.9, -0.6, 0.8, [-3.3, 0.9]],
