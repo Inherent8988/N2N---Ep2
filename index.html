@@ -48,8 +48,7 @@
 
   /* ---------- TOUCH UI ---------- */
   #touchui { display: none; }
-  /* Keep the mobile controls visible: the #touchui ID rule otherwise wins. */
-  body.touch #touchui { display: block; }
+  .touch #touchui { display: block; }
   #joyBase, #joyKnob { position: fixed; border-radius: 50%; pointer-events: none; display: none; }
   #joyBase { width: 120px; height: 120px; margin: -60px 0 0 -60px; border: 2px solid rgba(255,255,255,.3); background: rgba(255,255,255,.07); }
   #joyKnob { width: 54px; height: 54px; margin: -27px 0 0 -27px; background: rgba(255,255,255,.35); border: 2px solid rgba(255,255,255,.55); }
@@ -209,6 +208,7 @@ const CONFIG = {
   CRANK_TIME: 4.3,
 };
 
+const START_MOTEL = new URLSearchParams(location.search).has('motel');
 {
   const qs = new URLSearchParams(location.search);
   const b = parseFloat(qs.get('breakdown')), st = parseFloat(qs.get('station'));
@@ -1584,7 +1584,7 @@ function readInput() {
   input.moveX = clamp(kx + joy.x, -1, 1);
   input.moveY = clamp(ky + joy.y, -1, 1);
   input.sprint = !!(keys.ShiftLeft || keys.ShiftRight) || Math.hypot(joy.x, joy.y) > 0.92;
-  if (!inputEnabled) { input.moveX = input.moveY = 0; input.sprint = false; }
+  if (!inputEnabled || (typeof ROOMST !== 'undefined' && ROOMST.inWardrobe)) { input.moveX = input.moveY = 0; input.sprint = false; }
 }
 
 function distToCar() { return Math.hypot(player.pos.x - car.pos.x, player.pos.z - car.pos.z); }
@@ -2286,7 +2286,25 @@ function buildMotel(mz) {
     box(1.0, 0.58, 0.06, M.dark, 1.2, 1.04, 2.77); plane(0.92, 0.5, new THREE.MeshBasicMaterial({ color: n % 3 === 0 ? 0x24445e : 0x0a0e14 }), 1.2, 1.04, 2.735, Math.PI); R.items.TV = { x: 1.2, z: 2.77 };
     lampAt(2.35, 0.7, 2.77);
 
-    item('Wardrobe', 0.55, 2.0, 1.2, M.wood, -3.225, 0, 0.9); [0, 1].forEach(q => box(0.02, 1.8, 0.56, solidMat(0x5a3a22, 0x1a1008), -2.94, 1.0, 0.62 + q * 0.58));
+    const wardrobeBody = item('Wardrobe', 0.55, 2.0, 1.2, M.wood, -3.225, 0, 0.9);
+    const wardrobeInside = new THREE.Group(); rg.add(wardrobeInside); wardrobeInside.visible = false;
+    const darkInside = solidMat(0x08090b, 0x020304);
+    const wi = (w, h, d, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), darkInside); o.position.set(x, y, z); wardrobeInside.add(o); return o; };
+    wi(0.48, 1.78, 0.035, -3.46, 1.0, 0.9);
+    wi(0.48, 1.78, 0.035, -3.00, 1.0, 0.62);
+    wi(0.48, 1.78, 0.035, -3.00, 1.0, 1.18);
+    wi(0.48, 0.035, 1.12, -3.225, 0.12, 0.9);
+    wi(0.48, 0.035, 1.12, -3.225, 1.88, 0.9);
+    const wardrobeDoors = [];
+    [1, -1].forEach((side, i) => {
+      const hingeZ = i === 0 ? 0.34 : 1.46;
+      const pivot = new THREE.Group(); pivot.position.set(-2.94, 0.1, hingeZ); rg.add(pivot);
+      const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.035, 1.8, 0.56), solidMat(0x5a3a22, 0x1a1008));
+      leaf.position.set(0, 0.9, side * 0.28); pivot.add(leaf);
+      wardrobeDoors.push({ pivot, side });
+    });
+    R.items.Wardrobe = { x: -3.225, z: 0.9, w: 0.55, d: 1.2, body: wardrobeBody,
+      inside: wardrobeInside, doors: wardrobeDoors, open: 0, target: 0 };
     item('Armchair', 0.8, 0.8, 0.8, M.armchair, 3.0, 0, 0.2);
 
     plane(1.1, 0.9, k9(n) ? M.lamp : new THREE.MeshBasicMaterial({ color: 0x1a2230 }), 1.2, 1.7, -2.99);
@@ -2375,9 +2393,9 @@ function pushOutMotel(p, rad) {
   return hit;
 }
 
-const ROOMST = { active: false, room: null };
+const ROOMST = { active: false, room: null, inWardrobe: false };
 function pushOutRoom(p, rad) {
-  if (!ROOMST.active) return false;
+  if (!ROOMST.active || ROOMST.inWardrobe) return false;
   const R = ROOMST.room; let px = p.x - R.x, pz = p.z - R.z, hit = false;
   for (const b of R.boxes) {
     const cx = Math.max(b.x0, Math.min(px, b.x1)), cz = Math.max(b.z0, Math.min(pz, b.z1)), dx = px - cx, dz = pz - cz, d2 = dx * dx + dz * dz;
@@ -2392,13 +2410,13 @@ function pushOutRoom(p, rad) {
 }
 function enterRoom(d) {
   const R = MOTEL.makeRoom(d.n);
-  ROOMST.active = true; ROOMST.room = R; R.group.visible = true;
+  ROOMST.active = true; ROOMST.inWardrobe = false; ROOMST.room = R; R.group.visible = true;
   player.pos.set(R.x + R.spawn.x, 0, R.z + R.spawn.z); player.vel.set(0, 0, 0); player.yaw = 0; pitch = -0.02; lookAccX = lookAccY = 0;
   if (d.n === 9 && hasItem('roomKey_9') && evt.state === 'MOTEL') { evt.state = 'END'; evt.t = 0; fadeEl.style.opacity = 0; }
 }
 function exitRoom() {
   const R = ROOMST.room, d = MOTEL.doors[R.n - 1], p = motelW(d.xc, -1.3);
-  ROOMST.active = false; R.group.visible = false;
+  ROOMST.active = false; ROOMST.inWardrobe = false; R.group.visible = false;
   player.pos.set(p.x, 0, p.z); player.vel.set(0, 0, 0); player.yaw = Math.PI / 2; pitch = -0.02; lookAccX = lookAccY = 0;
 }
 
@@ -2406,6 +2424,27 @@ function motelDoorAction() {
   if (!MOTEL.built || (evt.state !== 'MOTEL' && evt.state !== 'END')) return false;
   if (ROOMST.active) {
     const R = ROOMST.room;
+    const w = R.items.Wardrobe;
+    if (ROOMST.inWardrobe) {
+      ROOMST.inWardrobe = false;
+      player.pos.set(R.x - 2.35, 0, R.z + w.z);
+      player.vel.set(0, 0, 0);
+      w.target = 0;
+      say('You climbed out of the wardrobe');
+      return true;
+    }
+    if (w && Math.hypot((player.pos.x - R.x) - w.x, (player.pos.z - R.z) - w.z) < 1.65) {
+      if (w.open < 0.8) {
+        w.target = 1;
+        say('Wardrobe opened. Press Action to climb inside');
+      } else {
+        ROOMST.inWardrobe = true;
+        player.pos.set(R.x + w.x, 0, R.z + w.z);
+        player.vel.set(0, 0, 0);
+        say('You are hiding inside. Press Action to get out');
+      }
+      return true;
+    }
     if (Math.hypot(player.pos.x - (R.x + R.exit.x), player.pos.z - (R.z + R.exit.z)) < 1.5) { exitRoom(); return true; }
     return false;
   }
@@ -2452,6 +2491,13 @@ function updateMotel(dt) {
     if (d.open !== d.target) { d.open += Math.sign(d.target - d.open) * Math.min(Math.abs(d.target - d.open), dt * 1.6); }
     d.piv.rotation.y = 1.6 * smooth(d.open);
   }
+  if (ROOMST.active && ROOMST.room && ROOMST.room.items.Wardrobe) {
+    const w = ROOMST.room.items.Wardrobe;
+    if (w.open !== w.target) w.open += Math.sign(w.target - w.open) * Math.min(Math.abs(w.target - w.open), dt * 2.2);
+    w.doors.forEach(d => { d.pivot.rotation.y = d.side * 1.25 * w.open; });
+    w.body.visible = w.open < 0.05;
+    w.inside.visible = w.open >= 0.05;
+  }
   if (evt.state !== 'MOTEL' || Dialog.active || !inputEnabled) return;
   const q = motelL(player.pos.x, player.pos.z), lx = q.x, lz = q.z;
 
@@ -2486,7 +2532,15 @@ function updateHUD() {
     if (fl !== hudLast.fuel) { hudLast.fuel = fl; fuelTxt.textContent = fl; }
     if (low !== hudLast.low) { hudLast.low = low; fuelEl.classList.toggle('low', low); }
   }
-  const act = canBoard() ? 'Get in' : 'Action';
+  let act = canBoard() ? 'Get in' : 'Action';
+  if (ROOMST.active && ROOMST.room) {
+    if (ROOMST.inWardrobe) act = 'Exit';
+    else {
+      const w = ROOMST.room.items.Wardrobe;
+      if (w && Math.hypot((player.pos.x - ROOMST.room.x) - w.x, (player.pos.z - ROOMST.room.z) - w.z) < 1.65)
+        act = w.open > 0.8 ? 'Hide' : 'Open';
+    }
+  }
   if (act !== hudLast.act) { hudLast.act = act; $('bAct').textContent = act; }
   const m = '$' + eco.money;
   if (m !== hudLast.money) { hudLast.money = m; moneyEl.textContent = m; }
@@ -2556,6 +2610,7 @@ $('play').addEventListener('click', startGame);
 document.addEventListener('visibilitychange', () => { if (document.hidden && running) pauseGame(); });
 
 updateCamera(0);
+if (START_MOTEL) { evt.state = 'MOTEL'; teleportToMotel(); startGame(); }
 requestAnimationFrame(frame);
 
 window.GAME = { CONFIG, scene, camera, car, player, breakCar, startRunout, placeStation, eco, ST, FUEL_ZONE, stationGroup, LOG, pushAnim, evt, NPC, treeChunks, SPECIES, figures, POOL, Radio, carParts, set pitch(v) { pitch = v; }, get radioLook() { return radioLook; }, Dialog, MOTEL, ride, pushOutMotel, player, giveItem, hasItem, teleportToMotel, ROOMST, pushOutRoom, enterRoom, exitRoom, motelDoorAction, say,
