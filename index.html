@@ -33,7 +33,7 @@
   button, .tbtn { font-family: inherit; }
   #menu { position: fixed; inset: 0; z-index: 10; background: linear-gradient(90deg, rgba(0,0,0,.62) 0%, rgba(0,0,0,.28) 45%, rgba(0,0,0,.18) 100%); }
   #menu.paused { background: rgba(0,0,0,.62); }
-  #mleft { position: absolute; left: 6vw; top: 14vh; text-align: left; }
+  #mleft { position: absolute; left: 6vw; top: 6vh; text-align: left; }
   #menu h1 { margin: 0; font-size: clamp(30px, 6.4vw, 66px); letter-spacing: 5px; font-weight: 800; color: #4fb4ff; text-shadow: 0 0 22px rgba(40,140,230,.55), -2px 0 rgba(255,40,40,.35), 2px 0 rgba(40,255,255,.3); }
   #menu h2 { margin: 6px 0 30px 3px; font-size: clamp(13px, 2vw, 19px); letter-spacing: 6px; font-weight: 400; color: #4fb4ff; text-shadow: 0 0 12px rgba(40,140,230,.5); }
   #menu button { display: block; font-size: clamp(16px, 2.2vw, 22px); letter-spacing: 4px; padding: 10px 6px; margin: 0 0 6px; border: 0; background: none; color: #fff; cursor: pointer; text-align: left; text-shadow: -1px 0 rgba(255,40,40,.35), 1px 0 rgba(40,255,255,.3); }
@@ -186,10 +186,9 @@ window.reportErr = function (m) { try { console.error(m); var e = document.getEl
     <button id="epRoad">The Road</button>
   </div>
   <div id="err"></div>
-  <div class="ver">v0.12.0 — VHS menu</div>
+  <div class="ver">v0.12.1 — VHS menu</div>
 </div>
-<div id="vhs"><canvas id="vnoise"></canvas><div class="scan"></div><div class="bar"></div><div class="bar2"></div><div class="vig"></div>
-  <div class="rec"><i></i>REC <span id="vtime">00:00:00</span></div><div class="osd">&#9654; PLAY</div></div>
+<div id="vhs"><canvas id="vnoise"></canvas><div class="scan"></div><div class="bar"></div><div class="bar2"></div><div class="vig"></div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>window.THREE || document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"><\/script>');</script>
