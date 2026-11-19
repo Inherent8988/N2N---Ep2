@@ -42,6 +42,8 @@
   #eps { position: absolute; right: 8vw; top: 30vh; display: none; flex-direction: column; text-align: left; }
   #menu.eps-open #eps { display: flex; } #menu.eps-open #play { display: none; } #menu.paused #eps { display: none; }
   #eps .eh { color: #fff; font-size: clamp(13px, 1.8vw, 18px); letter-spacing: 8px; margin: 0 0 18px 6px; opacity: .85; text-shadow: -1px 0 rgba(255,40,40,.35), 1px 0 rgba(40,255,255,.3); }
+  #menu .mail { position: absolute; left: 14px; bottom: 32px; font-size: clamp(12px, 1.5vw, 15px); line-height: 1.5; letter-spacing: 1px; color: #fff; text-shadow: -1px 0 rgba(255,40,40,.35), 1px 0 rgba(40,255,255,.3); user-select: text; }
+  #menu.paused .mail { display: none; }
   #menu .ver { position: absolute; left: 14px; bottom: 10px; font-size: 11px; color: rgba(255,255,255,.35); }
   #err { position: absolute; left: 6vw; bottom: 34px; color: #fff; font-size: 12px; }
   /* VHS look (menu only) */
@@ -185,8 +187,9 @@ window.reportErr = function (m) { try { console.error(m); var e = document.getEl
     <button id="epHome">Staying Home</button>
     <button id="epRoad">The Road</button>
   </div>
+  <div class="mail">Support Email:<br>nighttonever@gmail.com</div>
   <div id="err"></div>
-  <div class="ver">v0.12.1 — VHS menu</div>
+  <div class="ver">v0.13.0 — detailed models</div>
 </div>
 <div id="vhs"><canvas id="vnoise"></canvas><div class="scan"></div><div class="bar"></div><div class="bar2"></div><div class="vig"></div></div>
 
@@ -1116,7 +1119,8 @@ function makePerson(o) {
 
   const fabric = (base, kind, rx, ry) => tex(cv(64, 64, (c, w, h) => {
     c.fillStyle = base; c.fillRect(0, 0, w, h);
-    if (kind === 'shirt') { c.fillStyle = 'rgba(0,0,0,0.07)'; for (let x = 0; x < w; x += 2) c.fillRect(x, 0, 1, h); c.fillStyle = 'rgba(255,255,255,0.07)'; for (let y = 0; y < h; y += 2) c.fillRect(0, y, w, 1); }
+    if (kind === 'shirt') { c.fillStyle = 'rgba(0,0,0,0.07)'; for (let x = 0; x < w; x += 2) c.fillRect(x, 0, 1, h); c.fillStyle = 'rgba(255,255,255,0.07)'; for (let y = 0; y < h; y += 2) c.fillRect(0, y, w, 1);
+      for (let i = 0; i < 7; i++) { const y0 = Math.random() * h, x0 = Math.random() * w; c.strokeStyle = 'rgba(0,0,0,0.14)'; c.lineWidth = 2; c.beginPath(); c.moveTo(x0, y0); c.quadraticCurveTo(x0 + 10, y0 + 4, x0 + 24, y0 + 1); c.stroke(); c.strokeStyle = 'rgba(255,255,255,0.1)'; c.beginPath(); c.moveTo(x0, y0 + 3); c.quadraticCurveTo(x0 + 10, y0 + 7, x0 + 24, y0 + 4); c.stroke(); } }
     else if (kind === 'vest') { c.fillStyle = 'rgba(255,255,255,0.13)'; for (let x = 4; x < w; x += 8) c.fillRect(x, 0, 1, h); grain(c, w, h, 300, 0.05); }
     else if (kind === 'wool') { grain(c, w, h, 900, 0.1); c.fillStyle = 'rgba(0,0,0,0.12)'; for (let y = 0; y < h; y += 4) c.fillRect(0, y, w, 1); }
     else { c.strokeStyle = 'rgba(255,255,255,0.07)'; c.lineWidth = 1; for (let i = -h; i < w; i += 3) { c.beginPath(); c.moveTo(i, 0); c.lineTo(i + h, h); c.stroke(); } grain(c, w, h, 200, 0.05); }
@@ -1125,7 +1129,8 @@ function makePerson(o) {
   const S = (css, em) => new THREE.MeshLambertMaterial({ color: new THREE.Color(css), emissive: em === undefined ? 0x1a1008 : em });
   const topM = L(fabric(o.top, o.kind === 'jacket' ? 'wool' : 'shirt', 3, 2)), sleeveM = L(fabric(o.top, o.kind === 'jacket' ? 'wool' : 'shirt', 1, 2));
   const pantsM = L(fabric(o.pants, 'twill', 2, 3), 0x08080a), shoeM = S(o.shoes, 0x060606), soleM = S('#0a0a0a', 0x020202);
-  const skinM = S(o.skin), hairM = S(o.hair, 0x080604);
+  const skinM = S(o.skin), hairM = new THREE.MeshLambertMaterial({ map: tex(cv(64, 64, (c, w, h) => { c.fillStyle = o.hair; c.fillRect(0, 0, w, h);
+    for (let i = 0; i < 70; i++) { const x = Math.random() * w; c.strokeStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.13)' : 'rgba(0,0,0,0.3)'; c.lineWidth = 1 + Math.random(); c.beginPath(); c.moveTo(x, 0); c.quadraticCurveTo(x + (Math.random() - 0.5) * 8, h / 2, x + (Math.random() - 0.5) * 6, h); c.stroke(); } }), 1, 1), emissive: 0x080604 });
   const g = new THREE.Group(), P = { g };
   const add = (par, geo, m, x, y, z, sx, sy, sz) => { const ob = new THREE.Mesh(geo, m); ob.position.set(x || 0, y || 0, z || 0); if (sx) ob.scale.set(sx, sy, sz); par.add(ob); return ob; };
   const cyl = (r0, r1, h, seg) => new THREE.CylinderGeometry(r0, r1, h, seg || 12);
@@ -1144,6 +1149,17 @@ function makePerson(o) {
   }
   if (o.tie) { const tm = S(o.tie, 0x100508); add(torso, new THREE.BoxGeometry(0.045, 0.3, 0.012), tm, 0, 0.4, 0.128); add(torso, new THREE.BoxGeometry(0.06, 0.05, 0.016), tm, 0, 0.53, 0.12); }
   add(torso, cyl(0.056, 0.064, 0.035, 14), topM, 0, 0.62, 0.005, 1, 1, 0.95);
+  [-1, 1].forEach(sd => { const cw = add(torso, new THREE.BoxGeometry(0.06, 0.05, 0.012), topM, sd * 0.034, 0.605, 0.082); cw.rotation.set(0.45, 0, sd * -0.55); });
+  const frontZ = y => 0.68 * (y < 0.1 ? 0.148 : y < 0.24 ? 0.152 : y < 0.38 ? 0.165 : 0.18) + 0.004;
+  if (o.kind === 'jacket') {
+    add(torso, new THREE.BoxGeometry(0.012, 0.5, 0.008), S('#0a0a0a', 0x040404), 0, 0.3, frontZ(0.3) + 0.004);
+    [-1, 1].forEach(sd => { add(torso, new THREE.BoxGeometry(0.075, 0.035, 0.012), S('#08080a', 0x020202), sd * 0.085, 0.14, frontZ(0.14) + 0.004); const lp = add(torso, new THREE.BoxGeometry(0.05, 0.14, 0.014), topM, sd * 0.045, 0.52, 0.112); lp.rotation.z = sd * -0.35; });
+  } else if (!o.vest) {
+    [0.14, 0.26, 0.38, 0.49].forEach(y => add(torso, new THREE.SphereGeometry(0.0075, 8, 6), S('#cfcabb', 0x201e18), 0, y, frontZ(y)));
+    add(torso, new THREE.BoxGeometry(0.075, 0.07, 0.01), L(fabric(o.top, 'shirt', 1, 1)), 0.075, 0.4, frontZ(0.4) - 0.001);
+  }
+  { const bm = S('#1a120c', 0x070504), bkl = S('#b5a05a', 0x302810);
+    add(g, cyl(0.158, 0.158, 0.034, 20), bm, 0, 0.012, 0, 1, 1, 0.69); add(g, new THREE.BoxGeometry(0.036, 0.03, 0.012), bkl, 0, 0.012, 0.158 * 0.69 + 0.003); }
   add(torso, cyl(0.045, 0.052, 0.12, 12), skinM, 0, 0.665, 0.012);
 
   const head = new THREE.Group(); head.position.set(0, 0.79, 0.02); torso.add(head); P.head = head;
@@ -1182,9 +1198,10 @@ function makePerson(o) {
   add(sk, new THREE.SphereGeometry(0.1065, 24, 16, Math.PI / 2 - 0.9, 1.8, 1.0, 1.45), faceM, 0, 0, 0);
   add(sk, sph(0.022, 10, 8), skinM, 0, -0.034, 0.104, 0.8, 1.5, 1.3);
   add(sk, sph(0.017, 10, 8), skinM, 0, -0.053, 0.114, 1.5, 0.8, 1.0);
-  [-1, 1].forEach(s => { add(sk, sph(0.03, 10, 8), skinM, s * 0.05, -0.05, 0.085, 1, 0.9, 0.8); add(sk, sph(0.02, 8, 6), skinM, s * 0.038, 0.034, 0.093, 1.9, 0.6, 0.7); });
+  [-1, 1].forEach(s => { add(sk, sph(0.024, 10, 8), skinM, s * 0.05, -0.05, 0.08, 1, 0.8, 0.6); add(sk, sph(0.02, 8, 6), skinM, s * 0.038, 0.034, 0.093, 1.9, 0.6, 0.7); });
   add(sk, sph(0.016, 8, 6), new THREE.MeshLambertMaterial({ color: 0xa5524c, emissive: 0x200c0a }), 0, -0.078, 0.098, 2.0, 0.55, 0.8);
   [-1, 1].forEach(s => add(sk, sph(0.022, 10, 8), skinM, s * 0.099, -0.005, -0.005, 0.55, 1.3, 1));
+  if (!o.cap || true) [-1, 1].forEach(s => add(sk, new THREE.BoxGeometry(0.018, 0.055, 0.03), hairM, s * 0.092, 0.012, 0.045));
 
   if (o.cap) {
     const cm = S(o.cap, 0x0a0a0c);
@@ -1207,6 +1224,7 @@ function makePerson(o) {
     add(el, cyl(0.035, 0.035, 0.022, 12), sleeveM, 0, -0.255, 0);
     add(el, sph(0.036, 12, 10), skinM, 0, -0.30, 0.004, 0.95, 1.6, 0.6);
     add(el, sph(0.012, 8, 6), skinM, s * -0.028, -0.28, 0.018, 1, 1.8, 1);
+    [0, 1, 2, 3].forEach(i => { const f = add(el, cyl(0.0085 - i * 0.0004, 0.0065, 0.05 - (i === 3 ? 0.01 : 0) - (i === 0 ? 0.004 : 0), 8), skinM, -0.021 + i * 0.014, -0.352, 0.012); f.rotation.x = -0.28; });
     return { sh, el };
   });
 
@@ -1218,6 +1236,9 @@ function makePerson(o) {
     add(kn, cyl(0.064, 0.047, 0.43, 12), pantsM, 0, -0.215, 0);
     add(kn, sph(0.05, 12, 8), shoeM, 0, -0.47, 0.06, 1.0, 0.75, 2.3);
     add(kn, new THREE.BoxGeometry(0.095, 0.02, 0.27), soleM, 0, -0.505, 0.055);
+    add(kn, new THREE.BoxGeometry(0.085, 0.045, 0.085), shoeM, 0, -0.475, -0.04);
+    add(kn, new THREE.BoxGeometry(0.058, 0.004, 0.07), S('#d8d4c8', 0x302e28), 0, -0.438, 0.06);
+    add(kn, cyl(0.052, 0.052, 0.025, 12), pantsM, 0, -0.42, 0);
     return { hp, kn };
   });
   const setArm = (a, sx, ex) => { a.sh.rotation.x = sx; a.el.rotation.x = ex; };
@@ -2296,7 +2317,12 @@ function buildMotel(mz) {
     const wall = (x0, x1, z0, z1, m, y0, h) => { box(x1 - x0, h || RH, z1 - z0, m, (x0 + x1) / 2, (y0 || 0) + (h || RH) / 2, (z0 + z1) / 2); if (!y0) colr(x0, x1, z0, z1); };
 
     const item = (nm, w, h, d, m, x, y0, z) => { const o = box(w, h, d, m, x, y0 + h / 2, z); o.name = nm; colr(x - w / 2, x + w / 2, z - d / 2, z + d / 2); R.items[nm] = { x, z, w, d }; return o; };
-    const lampAt = (x, y, z) => { box(0.04, 0.22, 0.04, M.chrome, x, y + 0.11, z); box(0.22, 0.16, 0.22, M.lamp, x, y + 0.3, z); };
+    const cy = (r0, r1, h, m, x, y0, z, seg) => put(new THREE.CylinderGeometry(r0, r1, h, seg || 14), m, x, y0 + h / 2, z);
+    const sp = (r, m, x, y, z, sx, sy, sz) => { const o = put(new THREE.SphereGeometry(r, 14, 10), m, x, y, z); o.scale.set(sx || 1, sy || 1, sz || 1); return o; };
+    M.brass = solidMat(0xb59a5a, 0x302810); M.dwood = solidMat(0x4a2e1a, 0x180e06); M.shade = new THREE.MeshLambertMaterial({ color: 0xe8d4a4, emissive: 0xc8a868, side: THREE.DoubleSide });
+    M.fab2 = solidMat(0x244038, 0x0a1612); M.pillow = solidMat(0xeeeee6, 0x3c3c38); M.fold = solidMat(0x8e3438, 0x240c10); M.paper = solidMat(0xe4dccb, 0x38342c);
+
+    const lampAt = (x, y, z) => { cy(0.07, 0.09, 0.03, M.brass, x, y, z); cy(0.018, 0.022, 0.2, M.brass, x, y + 0.03, z, 8); cy(0.09, 0.14, 0.17, M.shade, x, y + 0.2, z, 16); cy(0.06, 0.06, 0.01, M.lamp, x, y + 0.2, z, 12); };
 
     plane(7.0, 6.0, M.floor, 0, 0.012, 0, 0, -Math.PI / 2); plane(2.5, 2.4, M.tile, -4.85, 0.012, -1.8, 0, -Math.PI / 2);
     plane(10.0, 6.4, M.ceil, -1.25, RH, 0, 0, Math.PI / 2);
@@ -2315,37 +2341,76 @@ function buildMotel(mz) {
     const bed = new THREE.Group(); bed.name = 'Bed'; rg.add(bed);
     item('Bed', 1.6, 0.35, 2.0, M.bed, 1.2, 0, -1.92); R.boxes.pop(); colr(0.4, 2.0, -3.0, -0.9);
     const bp = (w, h, d, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); bed.add(o); return o; };
-    bp(1.5, 0.2, 1.9, M.sheet, 1.2, 0.45, -1.92); bp(1.5, 0.06, 1.1, M.blanket, 1.2, 0.58, -1.45); bp(1.7, 0.9, 0.08, M.wood, 1.2, 0.75, -2.96);
-    [-1, 1].forEach(s => bp(0.6, 0.12, 0.35, M.sheet, 1.2 + s * 0.4, 0.61, -2.6));
+    bp(1.5, 0.2, 1.9, M.sheet, 1.2, 0.45, -1.92); bp(1.52, 0.09, 1.2, M.blanket, 1.2, 0.595, -1.38);
+    bp(1.54, 0.05, 0.22, M.fold, 1.2, 0.65, -1.85); bp(1.56, 0.12, 0.05, M.blanket, 1.2, 0.55, -0.78);
+    [-1, 1].forEach(s => { bp(0.04, 0.16, 1.1, M.blanket, 1.2 + s * 0.77, 0.52, -1.38); bp(0.52, 0.015, 1.1, M.fold, 1.2 + s * 0.35, 0.645, -1.38); });
+    [-1, 1].forEach(s => { const pw = new THREE.Mesh(new THREE.SphereGeometry(0.3, 14, 10), M.pillow); pw.position.set(1.2 + s * 0.4, 0.68, -2.62); pw.scale.set(1.0, 0.3, 0.72); bed.add(pw); });
+    bp(1.7, 1.0, 0.07, M.dwood, 1.2, 0.8, -2.97);
+    bp(1.76, 0.07, 0.1, M.dwood, 1.2, 1.32, -2.95); [-1, 1].forEach(s => { bp(0.09, 1.2, 0.1, M.dwood, 1.2 + s * 0.88, 0.7, -2.95); bp(0.08, 0.08, 0.08, M.brass, 1.2 + s * 0.88, 1.35, -2.95); });
+    [-1, 1].forEach(s => bp(0.7, 0.5, 0.02, M.wood, 1.2 + s * 0.4, 0.85, -2.92));
+    bp(1.64, 0.06, 0.08, M.dwood, 1.2, 0.36, -0.88);
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(q => bp(0.07, 0.2, 0.07, M.dwood, 1.2 + q[0] * 0.78, 0.1, -1.92 + q[1] * 0.94));
 
-    [0.05, 2.35].forEach((x, i) => { item('Nightstand' + (i + 1), 0.45, 0.5, 0.4, M.wood, x, 0, -2.78); lampAt(x, 0.5, -2.78); });
+    [0.05, 2.35].forEach((x, i) => { item('Nightstand' + (i + 1), 0.42, 0.46, 0.38, M.wood, x, 0.04, -2.78); box(0.5, 0.035, 0.44, M.dwood, x, 0.515, -2.78);
+      box(0.36, 0.16, 0.012, M.dwood, x, 0.36, -2.58); box(0.36, 0.16, 0.012, M.dwood, x, 0.17, -2.58); sp(0.018, M.brass, x, 0.36, -2.565); sp(0.018, M.brass, x, 0.17, -2.565);
+      [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(q => box(0.04, 0.05, 0.04, M.dwood, x + q[0] * 0.19, 0.02, -2.78 + q[1] * 0.16)); lampAt(x, 0.53, -2.78); });
 
-    item('Desk', 1.8, 0.75, 0.6, M.wood, -2.5, 0, -2.7); lampAt(-3.0, 0.75, -2.7); box(0.3, 0.02, 0.22, M.white, -2.0, 0.76, -2.7);
-    const chair = item('Chair', 0.42, 0.45, 0.42, M.cloth, -2.5, 0, -1.95); box(0.42, 0.5, 0.05, M.cloth, -2.5, 0.72, -1.75);
+    colr(-3.4, -1.6, -3.0, -2.4); R.items.Desk = { x: -2.5, z: -2.7, w: 1.8, d: 0.6 };
+    box(1.84, 0.04, 0.64, M.dwood, -2.5, 0.77, -2.7); [-1, 1].forEach(s => { box(0.05, 0.75, 0.55, M.wood, -2.5 + s * 0.86, 0.375, -2.7); });
+    box(1.62, 0.5, 0.02, M.wood, -2.5, 0.5, -2.97); box(0.5, 0.62, 0.52, M.wood, -1.85, 0.4, -2.7);
+    [0, 1, 2].forEach(q => { box(0.44, 0.18, 0.012, M.dwood, -1.85, 0.62 - q * 0.2, -2.435); sp(0.016, M.brass, -1.85, 0.62 - q * 0.2, -2.425); });
+    lampAt(-3.1, 0.79, -2.78); box(0.3, 0.022, 0.22, M.paper, -2.25, 0.8, -2.65); box(0.22, 0.03, 0.16, M.dark, -2.1, 0.82, -2.78); cy(0.035, 0.032, 0.09, M.white, -2.62, 0.79, -2.58);
+    box(0.2, 0.016, 0.02, M.brass, -2.28, 0.815, -2.75);
+    colr(-2.71, -2.29, -2.16, -1.74); R.items.Chair = { x: -2.5, z: -1.95, w: 0.42, d: 0.42 };
+    box(0.44, 0.07, 0.44, M.cloth, -2.5, 0.46, -1.95); box(0.4, 0.04, 0.4, M.dwood, -2.5, 0.42, -1.95);
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(q => cy(0.022, 0.018, 0.42, M.dwood, -2.5 + q[0] * 0.18, 0, -1.95 + q[1] * 0.18, 8));
+    box(0.42, 0.34, 0.05, M.cloth, -2.5, 0.78, -1.74); [-1, 1].forEach(s => box(0.035, 0.5, 0.035, M.dwood, -2.5 + s * 0.19, 0.7, -1.74)); box(0.44, 0.04, 0.05, M.dwood, -2.5, 0.97, -1.74);
 
-    item('Dresser', 1.6, 0.7, 0.45, M.wood, 1.2, 0, 2.77);
-    box(1.0, 0.58, 0.06, M.dark, 1.2, 1.04, 2.77); plane(0.92, 0.5, new THREE.MeshBasicMaterial({ color: n % 3 === 0 ? 0x24445e : 0x0a0e14 }), 1.2, 1.04, 2.735, Math.PI); R.items.TV = { x: 1.2, z: 2.77 };
+    item('Dresser', 1.6, 0.62, 0.45, M.wood, 1.2, 0.08, 2.77); box(1.68, 0.04, 0.5, M.dwood, 1.2, 0.72, 2.77);
+    [0, 1, 2].forEach(q => { [-1, 1].forEach(s => { box(0.74, 0.16, 0.012, M.dwood, 1.2 + s * 0.4, 0.58 - q * 0.18, 2.54); sp(0.02, M.brass, 1.2 + s * 0.4, 0.58 - q * 0.18, 2.527); }); });
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(q => box(0.06, 0.08, 0.06, M.dwood, 1.2 + q[0] * 0.75, 0.04, 2.77 + q[1] * 0.17));
+    box(1.06, 0.62, 0.09, M.dark, 1.2, 1.07, 2.78); box(0.5, 0.03, 0.2, M.dark, 1.2, 0.755, 2.77); box(0.07, 0.06, 0.07, M.dark, 1.2, 0.79, 2.77);
+    plane(0.96, 0.54, new THREE.MeshBasicMaterial({ color: n % 3 === 0 ? 0x24445e : 0x0a0e14 }), 1.2, 1.07, 2.733, Math.PI); R.items.TV = { x: 1.2, z: 2.77 };
+    box(0.03, 0.015, 0.01, new THREE.MeshBasicMaterial({ color: 0xff3020 }), 1.62, 0.8, 2.73);
     lampAt(2.35, 0.7, 2.77);
 
-    item('Wardrobe', 0.55, 2.0, 1.2, M.wood, -3.225, 0, 0.9); [0, 1].forEach(q => box(0.02, 1.8, 0.56, solidMat(0x5a3a22, 0x1a1008), -2.94, 1.0, 0.62 + q * 0.58));
-    item('Armchair', 0.8, 0.8, 0.8, M.armchair, 3.0, 0, 0.2);
+    item('Wardrobe', 0.55, 2.0, 1.2, M.wood, -3.225, 0, 0.9); [0, 1].forEach(q => { box(0.02, 1.8, 0.56, solidMat(0x5a3a22, 0x1a1008), -2.94, 1.0, 0.62 + q * 0.58);
+      [0.55, 1.35].forEach(py => box(0.014, 0.58, 0.4, M.dwood, -2.93, py, 0.62 + q * 0.58)); cy(0.012, 0.012, 0.2, M.brass, -2.915, 0.9, q ? 0.98 : 0.84, 8); });
+    box(0.62, 0.06, 1.28, M.dwood, -3.2, 2.03, 0.9); box(0.58, 0.1, 1.24, M.dwood, -3.19, 0.05, 0.9); box(0.015, 1.84, 0.04, M.dwood, -2.935, 1.0, 0.9);
+    colr(2.6, 3.4, -0.2, 0.6); R.items.Armchair = { x: 3.0, z: 0.2, w: 0.8, d: 0.8 };
+    box(0.78, 0.22, 0.78, M.fab2, 3.0, 0.3, 0.2); box(0.62, 0.12, 0.62, M.armchair, 2.95, 0.47, 0.2); box(0.16, 0.5, 0.78, M.fab2, 3.32, 0.7, 0.2); box(0.1, 0.4, 0.5, M.armchair, 3.22, 0.72, 0.2);
+    [-1, 1].forEach(s => { box(0.7, 0.22, 0.12, M.fab2, 2.97, 0.58, 0.2 + s * 0.33); sp(0.06, M.fab2, 2.62, 0.69, 0.2 + s * 0.33, 1, 1, 1.4); });
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(q => cy(0.03, 0.022, 0.15, M.dwood, 3.0 + q[0] * 0.33, 0, 0.2 + q[1] * 0.33, 8));
 
     plane(1.1, 0.9, k9(n) ? M.lamp : new THREE.MeshBasicMaterial({ color: 0x1a2230 }), 1.2, 1.7, -2.99);
-    [-1, 1].forEach(s => box(0.3, 1.3, 0.05, M.curtain, 1.2 + s * 0.7, 1.7, -2.95)); box(1.9, 0.04, 0.06, M.chrome, 1.2, 2.38, -2.94);
+    [-1, 1].forEach(s => [0, 1, 2].forEach(q => box(0.1, 1.34 + (q === 1 ? 0.04 : 0), 0.05 + (q === 1 ? 0.025 : 0), M.curtain, 1.2 + s * (0.55 + q * 0.1), 1.68, -2.95 + (q === 1 ? 0.012 : 0))));
+    cy(0.018, 0.018, 1.9, M.brass, 1.2, 2.38, -2.94, 8).rotation.z = Math.PI / 2; [-1, 1].forEach(s => sp(0.03, M.brass, 1.2 + s * 0.96, 2.38, -2.94));
+    box(1.22, 0.04, 0.06, M.dwood, 1.2, 1.24, -2.97); box(1.22, 0.04, 0.06, M.dwood, 1.2, 2.16, -2.97); [-1, 1].forEach(s => box(0.04, 0.96, 0.06, M.dwood, 1.2 + s * 0.59, 1.7, -2.97)); box(0.02, 0.9, 0.03, M.dwood, 1.2, 1.7, -2.97);
     R.win2 = plane(1.2, 0.9, new THREE.MeshBasicMaterial({ color: 0x1a2230 }), 3.49, 1.6, -0.9, -Math.PI / 2);
     R.sil = plane(1.0, 0.9, new THREE.MeshBasicMaterial({ map: T(128, 128, (c, w, h) => { c.clearRect(0, 0, w, h); c.fillStyle = '#000'; c.beginPath(); c.ellipse(64, 38, 17, 21, 0, 0, Math.PI * 2); c.fill(); c.fillRect(56, 52, 16, 14);
       c.beginPath(); c.moveTo(14, 128); c.quadraticCurveTo(16, 70, 56, 64); c.lineTo(72, 64); c.quadraticCurveTo(112, 70, 114, 128); c.closePath(); c.fill(); }), transparent: true, opacity: 0, depthWrite: false }), 3.485, 1.6, -0.9, -Math.PI / 2);
-    [-1, 1].forEach(s => box(0.05, 1.3, 0.3, M.curtain, 3.45, 1.6, -0.9 + s * 0.75)); box(0.06, 0.04, 2.0, M.chrome, 3.44, 2.28, -0.9);
-    plane(1.4, 2.0, M.rug, 0.4, 0.02, 0.2, 0, -Math.PI / 2);
+    [-1, 1].forEach(s => [0, 1, 2].forEach(q => box(0.05 + (q === 1 ? 0.025 : 0), 1.34, 0.1, M.curtain, 3.43, 1.6, -0.9 + s * (0.62 + q * 0.1))));
+    cy(0.018, 0.018, 2.0, M.brass, 3.43, 2.28, -0.9, 8).rotation.x = Math.PI / 2; [-1, 1].forEach(s => sp(0.03, M.brass, 3.43, 2.28, -0.9 + s * 1.02));
+    box(0.06, 0.04, 1.3, M.dwood, 3.46, 1.12, -0.9); box(0.04, 0.04, 1.3, M.dwood, 3.47, 2.08, -0.9); [-1, 1].forEach(s => box(0.04, 0.96, 0.04, M.dwood, 3.47, 1.6, -0.9 + s * 0.62));
+    plane(1.6, 2.2, M.dwood, 0.4, 0.016, 0.2, 0, -Math.PI / 2); plane(1.4, 2.0, M.rug, 0.4, 0.02, 0.2, 0, -Math.PI / 2); plane(1.0, 1.6, M.dwood, 0.4, 0.024, 0.2, 0, -Math.PI / 2); plane(0.92, 1.52, M.rug, 0.4, 0.028, 0.2, 0, -Math.PI / 2);
+    box(7.0, 0.1, 0.03, M.dwood, 0, 0.05, -2.985); box(0.03, 0.1, 6.0, M.dwood, 3.485, 0.05, 0); box(2.2, 0.1, 0.03, M.dwood, 2.35, 0.05, 2.985); box(0.03, 0.1, 5.0, M.dwood, -3.485, 0.05, 0.5);
+    box(7.0, 0.05, 0.05, M.dwood, 0, RH - 0.03, -2.975); box(0.05, 0.05, 6.0, M.dwood, 3.475, RH - 0.03, 0);
     box(0.5, 0.04, 0.3, M.lamp, 0, RH - 0.03, 0); box(0.5, 0.04, 0.3, M.lamp, -4.85, RH - 0.03, -1.8);
-    plane(0.8, 0.5, surf(paper(1, 1, '#4a5a68'), 0x10161c), -2.5, 1.6, -2.99);
+    plane(0.8, 0.5, surf(paper(1, 1, '#4a5a68'), 0x10161c), -2.5, 1.6, -2.985);
+    box(0.9, 0.05, 0.04, M.brass, -2.5, 1.875, -2.99); box(0.9, 0.05, 0.04, M.brass, -2.5, 1.325, -2.99); [-1, 1].forEach(s => box(0.05, 0.6, 0.04, M.brass, -2.5 + s * 0.425, 1.6, -2.99));
 
     box(0.12, 2.05, 0.06, M.dark, -3.6, 1.025, -2.0); box(0.12, 2.05, 0.06, M.dark, -3.6, 1.025, -1.0);
     const bl = box(1.0, 2.0, 0.04, M.wood, -4.2, 1.0, -1.0); colr(-4.7, -3.7, -1.03, -0.97);
-    item('Toilet', 0.4, 0.4, 0.55, M.white, -4.3, 0, -2.725); box(0.4, 0.4, 0.2, M.white, -4.3, 0.6, -2.9); box(0.38, 0.03, 0.4, M.white, -4.3, 0.42, -2.75);
-    item('Sink', 0.5, 0.85, 0.42, M.white, -5.2, 0, -2.79); box(0.04, 0.14, 0.04, M.chrome, -5.2, 0.93, -2.95); plane(0.6, 0.8, M.mirror, -5.2, 1.65, -2.99);
+    colr(-4.5, -4.1, -3.0, -2.45); R.items.Toilet = { x: -4.3, z: -2.725, w: 0.4, d: 0.55 };
+    cy(0.1, 0.16, 0.3, M.white, -4.3, 0, -2.72); sp(0.2, M.white, -4.3, 0.36, -2.65, 1, 0.55, 1.28); box(0.38, 0.4, 0.17, M.white, -4.3, 0.62, -2.9); box(0.4, 0.03, 0.19, M.white, -4.3, 0.83, -2.9);
+    sp(0.19, M.sheet, -4.3, 0.43, -2.65, 1, 0.14, 1.2); cy(0.035, 0.035, 0.012, M.chrome, -4.3, 0.84, -2.9, 10);
+    colr(-5.45, -4.95, -3.0, -2.58); R.items.Sink = { x: -5.2, z: -2.79, w: 0.5, d: 0.42 };
+    cy(0.07, 0.1, 0.72, M.white, -5.2, 0, -2.85); box(0.52, 0.1, 0.4, M.white, -5.2, 0.8, -2.8); box(0.4, 0.02, 0.3, M.chrome, -5.2, 0.855, -2.78);
+    cy(0.012, 0.012, 0.12, M.chrome, -5.2, 0.86, -2.93, 8); box(0.02, 0.02, 0.08, M.chrome, -5.2, 0.97, -2.89); [-1, 1].forEach(s => sp(0.018, M.chrome, -5.2 + s * 0.09, 0.9, -2.93));
+    plane(0.6, 0.8, M.mirror, -5.2, 1.65, -2.985); box(0.66, 0.04, 0.03, M.chrome, -5.2, 2.07, -2.99); box(0.66, 0.04, 0.03, M.chrome, -5.2, 1.25, -2.99); [-1, 1].forEach(s => box(0.04, 0.84, 0.03, M.chrome, -5.2 + s * 0.31, 1.66, -2.99));
     item('Shower', 1.0, 0.08, 1.1, M.white, -5.5, 0, -1.15); box(0.03, 1.9, 1.1, M.glassM, -5.0, 0.95, -1.15); box(1.0, 1.9, 0.03, M.glassM, -5.5, 0.95, -1.7);
     box(0.04, 0.04, 0.4, M.chrome, -5.9, 1.95, -1.0); box(0.14, 0.03, 0.14, M.chrome, -5.9, 1.92, -0.8); box(0.5, 0.03, 0.03, M.chrome, -4.0, 1.2, -2.98);
+    box(0.42, 0.5, 0.025, M.sheet, -4.0, 1.0, -2.955); box(0.42, 0.02, 0.05, M.sheet, -4.0, 1.24, -2.955); cy(0.055, 0.055, 0.1, M.paper, -3.78, 0.6, -2.95, 12);
     return (MOTEL.rooms[n] = R);
   };
   const k9 = n => n % 2 === 0;
@@ -2357,14 +2422,31 @@ function buildMotel(mz) {
   const deskM = surf(woodT(3, 1), 0x2a1c10);
   furn(5.0, 1.05, 0.8, deskM, -8, 0, -4.9); deco(5.2, 0.08, 1.0, surf(woodT(2, 1), 0x3a2a18), -8, 1.09, -4.9);
   deco(0.12, 0.12, 0.1, lit, -6.2, 1.19, -4.9);
+  { const dk = solidMat(0x3a2415, 0x120a04), br = solidMat(0xb59a5a, 0x302810);
+    deco(5.0, 0.1, 0.06, dk, -8, 0.08, -4.5); deco(5.3, 0.04, 0.1, dk, -8, 1.04, -4.5);
+    for (let i = 0; i < 5; i++) deco(0.9, 0.7, 0.025, surf(woodT(1, 1), 0x1c1208), -9.95 + i * 0.99, 0.55, -4.49);
+    deco(0.38, 0.03, 0.26, solidMat(0xe4dccb, 0x38342c), -9.6, 1.12, -4.8); deco(0.3, 0.12, 0.2, solidMat(0x1b1c1f), -7.3, 1.17, -4.85); deco(0.34, 0.012, 0.22, solidMat(0x2a2c30), -7.3, 1.115, -4.85);
+    const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 0.12, 12), solidMat(0xd8d8d0, 0x383838)); sh.position.set(-9.0, 1.16, -4.85); g.add(sh);
+    deco(0.1, 0.05, 0.1, br, -6.2, 1.15, -4.9); }
   deco(2.6, 1.1, 0.06, woodM, -8, 1.7, -8.85);
   for (let k = 0; k < 9; k++) deco(0.08, 0.14, 0.04, new THREE.MeshBasicMaterial({ color: 0xc8b27a }), -9.1 + k * 0.28, 1.95 - (k % 2) * 0.4, -8.8);
   const recTex = T(256, 64, (c, w, h) => { c.fillStyle = '#14161c'; c.fillRect(0, 0, w, h); c.fillStyle = '#e8d9a8'; c.font = 'bold 34px monospace'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('RECEPTION', w / 2, h / 2 + 2); }, 1, 1);
   pl(2.4, 0.6, new THREE.MeshBasicMaterial({ map: recTex }), -8, 2.55, -8.84);
   deco(3.0, 0.02, 1.4, surf(carpet(1, 1, '#3a2a4a'), 0x120a1a), -8, 0.075, -3.4);
-  furn(2.0, 0.45, 0.8, solidMat(0x3a2a22), -12.5, 0, -1.6); deco(2.0, 0.5, 0.2, solidMat(0x3a2a22), -12.5, 0.7, -1.9);
-  furn(0.9, 0.4, 0.5, woodM, -12.5, 0, -0.5 + 0.0);
-  furn(0.5, 0.5, 0.5, solidMat(0x5a3a28), -4.3, 0, -1.0); { const o = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), solidMat(0x1d4a24, 0x081408)); o.position.set(-4.3, 0.95, -1.0); g.add(o); }
+  {
+    const sofa = solidMat(0x4a3228, 0x1a100c), sofa2 = solidMat(0x5a3d30, 0x201410), leg = solidMat(0x1a1210, 0x080606);
+    col(-13.5, -11.5, -2.0, -1.2);
+    deco(2.0, 0.22, 0.8, sofa, -12.5, 0.2, -1.6); [-1, 1].forEach(s => deco(0.9, 0.14, 0.66, sofa2, -12.5 + s * 0.46, 0.39, -1.55)); deco(2.0, 0.55, 0.18, sofa, -12.5, 0.65, -1.9);
+    [-1, 1].forEach(s => { deco(0.82, 0.32, 0.14, sofa2, -12.5 + s * 0.46, 0.66, -1.8); deco(0.16, 0.32, 0.8, sofa, -12.5 + s * 0.96, 0.45, -1.6); });
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(q => deco(0.06, 0.1, 0.06, leg, -12.5 + q[0] * 0.92, 0.05, -1.6 + q[1] * 0.34));
+
+    col(-12.95, -12.05, -0.75, -0.25); deco(0.96, 0.04, 0.54, woodM, -12.5, 0.4, -0.5); deco(0.8, 0.03, 0.4, leg, -12.5, 0.2, -0.5);
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(q => deco(0.045, 0.38, 0.045, leg, -12.5 + q[0] * 0.42, 0.19, -0.5 + q[1] * 0.22));
+    deco(0.3, 0.015, 0.22, solidMat(0xcfc8b4, 0x38342c), -12.6, 0.428, -0.5); deco(0.07, 0.09, 0.07, solidMat(0xd8d8d0, 0x383838), -12.3, 0.47, -0.45);
+
+    col(-4.55, -4.05, -1.25, -0.75); deco(0.46, 0.42, 0.46, solidMat(0x5a3a28), -4.3, 0.21, -1.0); deco(0.5, 0.05, 0.5, solidMat(0x6a4630), -4.3, 0.44, -1.0); deco(0.4, 0.02, 0.4, solidMat(0x2a1c12), -4.3, 0.46, -1.0);
+    const lf = solidMat(0x1d4a24, 0x081408); for (let i = 0; i < 9; i++) { const a = i * 2.4, r = 0.12 + (i % 3) * 0.07, o = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), lf); o.position.set(-4.3 + Math.cos(a) * r, 0.75 + (i % 4) * 0.17, -1.0 + Math.sin(a) * r); o.scale.set(0.5, 1.15, 0.28); o.rotation.set(Math.sin(a) * 0.5, a, Math.cos(a) * 0.5); g.add(o); }
+  }
   [-11, -8, -5].forEach(x => deco(0.7, 0.04, 0.35, panel, x, H - 0.04, -3));
 
   [[-12.4, 1.3], [-10.4, 1.3]].forEach(w => { pl(1.3, 1.1, lit, w[0], 1.6, 0.11); pl(1.3, 1.1, lit, w[0], 1.6, -0.11, 0, Math.PI); });
